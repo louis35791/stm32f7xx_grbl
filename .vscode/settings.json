@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "pack_struct_start.h": "c",
+        "encoder.h": "c"
+    }
+}
