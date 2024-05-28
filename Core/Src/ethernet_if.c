@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "main.h"
+#include "stm32f7xx_grbl.h"
 #include "ethernet_if.h"
 #include "encoder.h"
 
@@ -247,7 +247,7 @@ void prvProcessData(char *cRxedData, BaseType_t lBytesReceived, Socket_t xConnec
 
     BaseType_t i = 1;
 
-    for (i; i < lBytesReceived; i++)
+    for (; i < lBytesReceived; i++)
     {
         switch (cRxedData[i])
         {
@@ -271,7 +271,7 @@ void prvProcessData(char *cRxedData, BaseType_t lBytesReceived, Socket_t xConnec
         case 'p':
         case 'P':
         {
-            char str[12] = {NULL}; // Buffer big enough for 32-bit number. 10 digits max + '\0'
+            char str[12] = {'\0'}; // Buffer big enough for 32-bit number. 10 digits max + '\0'
             sprintf(str, "%ld", readDegree());
             FreeRTOS_send(xConnectedSocket, str, sizeof(str), 0);
             break;

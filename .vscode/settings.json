@@ -1,6 +1,10 @@
 {
     "files.associations": {
         "pack_struct_start.h": "c",
-        "encoder.h": "c"
+        "encoder.h": "c",
+        "ethernet_if.h": "c",
+        "stm32f7xx_grbl.h": "c",
+        "main.h": "c",
+        "stm32f7xx_hal.h": "c"
     }
 }
