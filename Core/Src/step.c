@@ -501,6 +501,15 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
         // set PD7 to high ===> signal the start of updating DMA buffer
         HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_SET);
 
+        // disable output compare channel
+        // TIM_CCxChannelCmd(Z_AXIS_TIM, Z_AXIS_PULSE_TIM_CHANNEL, TIM_CCx_DISABLE);
+
+        // force OC1 to high
+        // reset OC1M bits
+        Z_AXIS_TIM->CCMR1 &= ~TIM_CCMR1_OC1M;
+        // set OC1M bits to 0101
+        Z_AXIS_TIM->CCMR1 |= TIM_OCMODE_FORCED_ACTIVE;
+
         for (uint8_t i = 0; i < NUM_DIMENSIONS; i++)
         {
             // get timer and DMA parameters of this axis
