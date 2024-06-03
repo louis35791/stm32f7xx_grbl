@@ -104,6 +104,16 @@ void Error_Handler(void);
 #define TMS_GPIO_Port GPIOA
 #define TCK_Pin GPIO_PIN_14
 #define TCK_GPIO_Port GPIOA
+#define EN_LV_SHIFT_Pin GPIO_PIN_3
+#define EN_LV_SHIFT_GPIO_Port GPIOD
+#define DEBUG_1_Pin GPIO_PIN_4
+#define DEBUG_1_GPIO_Port GPIOD
+#define DEBUG_2_Pin GPIO_PIN_5
+#define DEBUG_2_GPIO_Port GPIOD
+#define DEBUG_3_Pin GPIO_PIN_6
+#define DEBUG_3_GPIO_Port GPIOD
+#define DEBUG_4_Pin GPIO_PIN_7
+#define DEBUG_4_GPIO_Port GPIOD
 #define RMII_TX_EN_Pin GPIO_PIN_11
 #define RMII_TX_EN_GPIO_Port GPIOG
 #define RMII_TXD0_Pin GPIO_PIN_13

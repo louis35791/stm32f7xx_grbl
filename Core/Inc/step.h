@@ -48,7 +48,14 @@ typedef enum AxisEnum
     NUM_DIMENSIONS
 } axis_t;
 
-typedef uint16_t doubleBufferArray_t[DOUBLE_BUFFER_SIZE];
+/**
+ * NOTE: Here we use uint32_t instead of uint16_t as the format of the buffer
+ *       in case the 32-bit timer does not support 16-bit DMA.
+ *       There is an unexpected result occurred as uint16_t is used,
+ *       which ends up with two replicates of 16-bit data concatenated
+ *       into a single 32-bit register.
+ */
+typedef uint32_t doubleBufferArray_t[DOUBLE_BUFFER_SIZE];
 
 typedef struct
 {
@@ -127,5 +134,6 @@ typedef struct
 
 /* exported functions */
 void vStepTask(void *pvParameters);
+HAL_StatusTypeDef TIM_OC_Start_DMA(TIM_HandleTypeDef *htim, uint32_t Channel, const uint32_t *pData, uint16_t Length);
 
 #endif // __STEP_H
