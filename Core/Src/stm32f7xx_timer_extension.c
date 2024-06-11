@@ -121,7 +121,7 @@ HAL_StatusTypeDef TIM_OC_Start_DMA_Double_Buffer(TIM_HandleTypeDef *htim, uint32
         /* Enable the Output compare channel */
         TIM_CCxChannelCmd(htim->Instance, Channel, TIM_CCx_ENABLE);
 
-        __HAL_TIM_ENABLE(htim);
+        // __HAL_TIM_ENABLE(htim);
     }
 
     return status;

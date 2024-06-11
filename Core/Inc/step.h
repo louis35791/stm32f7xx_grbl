@@ -3,6 +3,7 @@
 #define __STEP_H
 
 /* defines */
+#define MAX_TICKS                           0xFFFFFFFF // maximum value of 32-bit timer
 #define PULSE_WIDTH_US                      5UL // pulse width of HIGH state in microseconds                         
 #define MINIMUN_LOW_PULSE_WIDTH_US          5UL // minimum pulse width of LOW state in microseconds
 #define PULSE_WIDTH_TICKS                   (uint32_t)((PULSE_WIDTH_US * APB1_TIMER_CLOCK) / 1000000) // pulse width in ticks
@@ -16,12 +17,12 @@
 #define Y_AXIS_TIM                          ((TIM_TypeDef *)Y_AXIS_TIM_BASE)
 #define Z_AXIS_TIM                          ((TIM_TypeDef *)Z_AXIS_TIM_BASE)
 #define MASTER_TIM                          X_AXIS_TIM
-#define X_AXIS_TIM_HANDLE                   &htim2
-#define Y_AXIS_TIM_HANDLE                   &htim2
-#define Z_AXIS_TIM_HANDLE                   &htim5
+#define X_AXIS_TIM_HANDLE                   htim2
+#define Y_AXIS_TIM_HANDLE                   htim2
+#define Z_AXIS_TIM_HANDLE                   htim5
 #define MASTER_TIM_HANDLE                   X_AXIS_TIM_HANDLE
 #define X_AXIS_PULSE_TIM_ACTIVE_CHANNEL     HAL_TIM_ACTIVE_CHANNEL_3
-#define Y_AXIS_PULSE_TIM_ACTIVE_CHANNEL     HAL_TIM_ACTIVE_CHANNEL_4
+#define Y_AXIS_PULSE_TIM_ACTIVE_CHANNEL     HAL_TIM_ACTIVE_CHANNEL_2
 #define Z_AXIS_PULSE_TIM_ACTIVE_CHANNEL     HAL_TIM_ACTIVE_CHANNEL_1
 #define X_AXIS_PULSE_TIM_DMA_ID             TIM_DMA_ID_CC3
 #define Y_AXIS_PULSE_TIM_DMA_ID             TIM_DMA_ID_CC4
@@ -29,6 +30,9 @@
 #define X_AXIS_PULSE_TIM_CHANNEL            TIM_CHANNEL_3
 #define Y_AXIS_PULSE_TIM_CHANNEL            TIM_CHANNEL_4
 #define Z_AXIS_PULSE_TIM_CHANNEL            TIM_CHANNEL_1
+#define X_AXIS_PULSE_TIM_CCRx               (uint32_t)(&(X_AXIS_TIM_HANDLE.Instance->CCR3))
+#define Y_AXIS_PULSE_TIM_CCRx               (uint32_t)(&(Y_AXIS_TIM_HANDLE.Instance->CCR4))
+#define Z_AXIS_PULSE_TIM_CCRx               (uint32_t)(&(Z_AXIS_TIM_HANDLE.Instance->CCR1))
 
 #define GENERAL_NOTIFICATION_DATA_READY             0x01
 #define GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE     0x02
@@ -65,7 +69,7 @@ typedef struct
 /* Macros */
 #define CONCATENATE(A, B) A##B
 
-#define COMPUTE_INCREMENT_FOR_PULSE(pulse_freq, clock_freq) ((uint16_t)((uint32_t)clock_freq / ((uint32_t)pulse_freq * 2)))
+#define COMPUTE_INCREMENT_FOR_PULSE(pulse_freq, clock_freq) ((uint32_t)clock_freq / (uint32_t)pulse_freq)
 
 // get TIM capture compare register value on runtime
 #define TIM_GET_COMPARE(__HANDLE__, __ACTIVE_CHANNEL__) \
@@ -100,10 +104,10 @@ typedef struct
     } while (0);
 
 // Timer start counter
-#define TIM_START_COUNTER(__HANDLE__) ((__HANDLE__)->CR1 |= TIM_CR1_CEN)
+#define TIM_START_COUNTER(__HANDLE__) ((__HANDLE__)->Instance->CR1 |= TIM_CR1_CEN)
 
 // Timer stop counter
-#define TIM_STOP_COUNTER(__HANDLE__) ((__HANDLE__)->CR1 &= ~TIM_CR1_CEN)
+#define TIM_STOP_COUNTER(__HANDLE__) ((__HANDLE__)->Instance->CR1 &= ~TIM_CR1_CEN)
 
 // swap buffer
 #define SWAP_BUFFER_UINT32(__BUFFER1__, __BUFFER2__) \
@@ -118,74 +122,53 @@ typedef struct
 #define INIT_TIM_DMA_PARAMETERS(__TARGET_ARR__, __AXIS__)   \
     do                                      \
     {                                       \
-        (__TARGET_ARR__)[__AXIS__].pulse.htim = CONCATENATE(__AXIS__, _TIM_HANDLE); \
-        (__TARGET_ARR__)[__AXIS__].pulse.TIM_DMA_ID = CONCATENATE(__AXIS__, _PULSE_TIM_DMA_ID); \
-        (__TARGET_ARR__)[__AXIS__].pulse.TIM_DMA_ID_CC= CONCATENATE(__AXIS__, _PULSE_TIM_ACTIVE_CHANNEL); \
-        (__TARGET_ARR__)[__AXIS__].pulse.TIM_CHANNEL= CONCATENATE(__AXIS__, _PULSE_TIM_CHANNEL); \
-        (__TARGET_ARR__)[__AXIS__].pulse.lengthAvailableData= 0; \
-        (__TARGET_ARR__)[__AXIS__].dir.htim = CONCATENATE(__AXIS__, _TIM_HANDLE); \
-        (__TARGET_ARR__)[__AXIS__].dir.TIM_DMA_ID = CONCATENATE(__AXIS__, _DIR_TIM_DMA_ID); \
-        (__TARGET_ARR__)[__AXIS__].dir.TIM_DMA_ID_CC= CONCATENATE(__AXIS__, _DIR_TIM_ACTIVE_CHANNEL); \
-        (__TARGET_ARR__)[__AXIS__].dir.TIM_CHANNEL= CONCATENATE(__AXIS__, _DIR_TIM_CHANNEL); \
-        (__TARGET_ARR__)[__AXIS__].dir.lengthAvailableData= 0; \
+        (__TARGET_ARR__)[__AXIS__].htim = &CONCATENATE(__AXIS__, _TIM_HANDLE); \
+        (__TARGET_ARR__)[__AXIS__].TIM_DMA_ID = CONCATENATE(__AXIS__, _PULSE_TIM_DMA_ID); \
+        (__TARGET_ARR__)[__AXIS__].TIM_DMA_ID_CC= CONCATENATE(__AXIS__, _PULSE_TIM_ACTIVE_CHANNEL); \
+        (__TARGET_ARR__)[__AXIS__].TIM_CHANNEL = CONCATENATE(__AXIS__, _PULSE_TIM_CHANNEL); \
+        (__TARGET_ARR__)[__AXIS__].CCRx_Addr = CONCATENATE(__AXIS__, _PULSE_TIM_CCRx); \
+        (__TARGET_ARR__)[__AXIS__].lastCounterValue = 0; \
+        (__TARGET_ARR__)[__AXIS__].lengthAvailableData= 0; \
     } while (0);
 
 // define ring buffer and associated variables
 #define DEFINE_RING_BUFFER(__AXIS__, __BUFFER_SIZE__) \
     static doubleBufferArray_t __AXIS__##PulseBuffer[__BUFFER_SIZE__]; \
-    // volatile uint16_t __AXIS__##RingBufferHead = 0; \
-    // volatile uint16_t __AXIS__##RingBufferTail = 0; \
-
-// get next index in ring buffer
-#define RING_BUFFER_GET_NEXT(__AXIS__, __RING_BUFFER_SIZE__) \
-    do  \
-    {   \
-        uint16_t nextIndex = (__AXIS__##RingBufferHead + 1) % (__RING_BUFFER_SIZE__); \
-        if (nextIndex != __AXIS__##RingBufferTail) \
-        { \
-            return nextIndex; \
-        } \
-        else return UINT16_MAX; \
-    } while (0); \
 
 // increment ring buffer head
 #define RING_BUFFER_INCREMENT_HEAD(__AXIS__, __RING_BUFFER_SIZE__) \
     do  \
     {   \
-        uint16_t nextIndex = (__AXIS__##RingBufferHead + 1) % (__RING_BUFFER_SIZE__); \
-        if (nextIndex != __AXIS__##RingBufferTail) \
+        uint16_t nextIndex = (ringBufferHead[__AXIS__] + 1) % (__RING_BUFFER_SIZE__); \
+        if (nextIndex != ringBufferTail[__AXIS__]) \
         { \
-            __AXIS__##RingBufferHead = nextIndex; \
+            ringBufferHead[__AXIS__] = nextIndex; \
         } \
     } while (0); \
 
-// get ring buffer tail
-#define RING_BUFFER_GET_TAIL(__AXIS__) \
-    do  \
-    {   \
-        if (__AXIS__##RingBufferTail != __AXIS__##RingBufferHead) \
-        { \
-            return __AXIS__##RingBufferTail; \
-        } \
-        else return UINT16_MAX; \
-    } while (0); \
-    
 // increment ring buffer tail
 #define RING_BUFFER_INCREMENT_TAIL(__AXIS__, __RING_BUFFER_SIZE__) \
     do  \
     {   \
-        if (__AXIS__##RingBufferTail != __AXIS__##RingBufferHead) \
+        if (ringBufferTail[__AXIS__] != ringBufferHead[__AXIS__]) \
         { \
-            __AXIS__##RingBufferTail = (__AXIS__##RingBufferTail + 1) % (__RING_BUFFER_SIZE__); \
+            ringBufferTail[__AXIS__] = (ringBufferTail[__AXIS__] + 1) % (__RING_BUFFER_SIZE__); \
         } \
     } while (0); \
 
 // get which axis the time handle belongs to
 #define GET_AXIS_FROM_TIM_HANDLE(__TIM_HANDLE__) \
-    (((__TIM_HANDLE__ == X_AXIS_TIM_HANDLE) && (__TIM_HANDLE__->Channel == X_AXIS_PULSE_TIM_ACTIVE_CHANNEL)) ? X_AXIS : \
-     ((__TIM_HANDLE__ == Y_AXIS_TIM_HANDLE) && (__TIM_HANDLE__->Channel == Y_AXIS_PULSE_TIM_ACTIVE_CHANNEL)) ? Y_AXIS : \
-     ((__TIM_HANDLE__ == Z_AXIS_TIM_HANDLE) && (__TIM_HANDLE__->Channel == Z_AXIS_PULSE_TIM_ACTIVE_CHANNEL)) ? Z_AXIS : \
+    (((__TIM_HANDLE__ == &X_AXIS_TIM_HANDLE) && (__TIM_HANDLE__->Channel == X_AXIS_PULSE_TIM_ACTIVE_CHANNEL)) ? X_AXIS : \
+     ((__TIM_HANDLE__ == &Y_AXIS_TIM_HANDLE) && (__TIM_HANDLE__->Channel == Y_AXIS_PULSE_TIM_ACTIVE_CHANNEL)) ? Y_AXIS : \
+     ((__TIM_HANDLE__ == &Z_AXIS_TIM_HANDLE) && (__TIM_HANDLE__->Channel == Z_AXIS_PULSE_TIM_ACTIVE_CHANNEL)) ? Z_AXIS : \
     NUM_DIMENSIONS) \
+
+// get time handle from axis
+#define GET_TIM_HANDLE_FROM_AXIS(__AXIS__) \
+    ((__AXIS__ == X_AXIS) ? X_AXIS_TIM_HANDLE : \
+     (__AXIS__ == Y_AXIS) ? Y_AXIS_TIM_HANDLE : \
+     (__AXIS__ == Z_AXIS) ? Z_AXIS_TIM_HANDLE : \
+     NULL) \
 
 // get the index of specified axis in DMA handlers array
 #define GET_TIM_DMA_ID_FROM_AXIS(__AXIS__) \
@@ -195,7 +178,7 @@ typedef struct
      UINT8_MAX) \
 
 // check if ring buffer is exhausted
-#define IS_RING_BUFFER_EXHAUSTED(__AXIS__) (__AXIS__##RingBufferHead == __AXIS__##RingBufferTail)
+#define IS_RING_BUFFER_EXHAUSTED(__AXIS__) (ringBufferHead[__AXIS__] == ringBufferTail[__AXIS__])
 
 
 /* exported functions */
