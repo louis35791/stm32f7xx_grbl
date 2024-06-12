@@ -33,9 +33,19 @@
 #define X_AXIS_PULSE_TIM_CCRx               (uint32_t)(&(X_AXIS_TIM_HANDLE.Instance->CCR3))
 #define Y_AXIS_PULSE_TIM_CCRx               (uint32_t)(&(Y_AXIS_TIM_HANDLE.Instance->CCR4))
 #define Z_AXIS_PULSE_TIM_CCRx               (uint32_t)(&(Z_AXIS_TIM_HANDLE.Instance->CCR1))
+#define X_AXIS_COMPARE_EVENT_ID             TIM_EVENTSOURCE_CC3
+#define Y_AXIS_COMPARE_EVENT_ID             TIM_EVENTSOURCE_CC4
+#define Z_AXIS_COMPARE_EVENT_ID             TIM_EVENTSOURCE_CC1
 
-#define GENERAL_NOTIFICATION_DATA_READY             0x01
-#define GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE     0x02
+#define STEP_EVENT_COUNT    100
+#define STEP_X              100
+#define STEP_Y              50
+#define STEP_Z              20
+
+#define GENERAL_NOTIFICATION_FIRST_TIME_START       0x01
+#define GENERAL_NOTIFICATION_DATA_READY             0x02
+#define GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE     0x04
+#define GENERAL_NOTIFICATION_ALL_AXES_DMA_COMPLETED 0x08
 
 /* extern variables */
 extern TIM_HandleTypeDef htim2;
@@ -104,10 +114,10 @@ typedef struct
     } while (0);
 
 // Timer start counter
-#define TIM_START_COUNTER(__HANDLE__) ((__HANDLE__)->Instance->CR1 |= TIM_CR1_CEN)
+#define TIM_START_COUNTER(__HANDLE__) ((__HANDLE__).Instance->CR1 |= TIM_CR1_CEN)
 
 // Timer stop counter
-#define TIM_STOP_COUNTER(__HANDLE__) ((__HANDLE__)->Instance->CR1 &= ~TIM_CR1_CEN)
+#define TIM_STOP_COUNTER(__HANDLE__) ((__HANDLE__).Instance->CR1 &= ~TIM_CR1_CEN)
 
 // swap buffer
 #define SWAP_BUFFER_UINT32(__BUFFER1__, __BUFFER2__) \
@@ -127,13 +137,25 @@ typedef struct
         (__TARGET_ARR__)[__AXIS__].TIM_DMA_ID_CC= CONCATENATE(__AXIS__, _PULSE_TIM_ACTIVE_CHANNEL); \
         (__TARGET_ARR__)[__AXIS__].TIM_CHANNEL = CONCATENATE(__AXIS__, _PULSE_TIM_CHANNEL); \
         (__TARGET_ARR__)[__AXIS__].CCRx_Addr = CONCATENATE(__AXIS__, _PULSE_TIM_CCRx); \
+        (__TARGET_ARR__)[__AXIS__].CompareEventID = CONCATENATE(__AXIS__, _COMPARE_EVENT_ID); \
         (__TARGET_ARR__)[__AXIS__].lastCounterValue = 0; \
-        (__TARGET_ARR__)[__AXIS__].lengthAvailableData= 0; \
     } while (0);
+
+// initialize stepper_t array
+#define INIT_STEPPER_ARRAY(__STEPPER_ARRAY__, __AXIS__) \
+    do  \
+    {   \
+        (__STEPPER_ARRAY__)[__AXIS__].counter = STEP_EVENT_COUNT >> 1; \
+        (__STEPPER_ARRAY__)[__AXIS__].steps =   (__AXIS__ == X_AXIS) ? STEP_X : \
+                                                (__AXIS__ == Y_AXIS) ? STEP_Y : \
+                                                (__AXIS__ == Z_AXIS) ? STEP_Z : 0; \
+        (__STEPPER_ARRAY__)[__AXIS__].buf_index = 0; \
+    } while (0);    \
+    
 
 // define ring buffer and associated variables
 #define DEFINE_RING_BUFFER(__AXIS__, __BUFFER_SIZE__) \
-    static doubleBufferArray_t __AXIS__##PulseBuffer[__BUFFER_SIZE__]; \
+    static pulse_t __AXIS__##PulseBuffer[__BUFFER_SIZE__]; \
 
 // increment ring buffer head
 #define RING_BUFFER_INCREMENT_HEAD(__AXIS__, __RING_BUFFER_SIZE__) \

@@ -7,10 +7,10 @@
 #include "task.h"
 #include "step.h"
 
-#define PULSE_FREQ 100000   // Hz
+#define PULSE_FREQ 100000  // Hz
 #define HALF_PERIOD 0x7FFF // 0xFFFF / 2
 #define RING_BUFFER_SIZE 6
-#define GAP_HEAD_TAIL 2 // gap between head and tail, two buffers in used by DMA
+#define GAP_HEAD_TAIL 1 // gap between head and tail, two buffers in used by DMA
 
 /**
  * Type Defines
@@ -22,21 +22,22 @@ typedef struct TIM_DMA_Parameters
     uint8_t TIM_DMA_ID_CC;
     uint8_t TIM_CHANNEL;
     uint32_t CCRx_Addr;
+    uint32_t CompareEventID;
     uint32_t lastCounterValue;
-    uint16_t lengthAvailableData;
 } TIM_DMA_Parameters_t;
 
 typedef struct
 {
-    TIM_DMA_Parameters_t pulse;
-    TIM_DMA_Parameters_t dir;
-} Axis_TIM_DMA_Parameters_t;
+    doubleBufferArray_t data;
+    uint16_t length;
+} pulse_t;
 
 typedef struct
 {
-    doubleBufferArray_t pulse[2];
-    doubleBufferArray_t dir[2];
-} AxisBuffer_t;
+    uint32_t counter;
+    uint32_t steps;
+    uint16_t buf_index;
+} stepper_t;
 
 /**
  * Declare Variables
@@ -53,15 +54,11 @@ volatile uint16_t ringBufferTail[NUM_DIMENSIONS] = {0};
 // declare an array of timer and DMA parameters for each axis
 static TIM_DMA_Parameters_t axisTimerDMAParams[NUM_DIMENSIONS];
 
-// declare an array of buffer for each axis
-// static AxisBuffer_t axisBuffer[NUM_DIMENSIONS];
+// declare an array of stepper_t for each axis
+static stepper_t stepper[NUM_DIMENSIONS];
 
 // declare an array of general notification
 volatile uint32_t generalNotification;
-
-// threshold for determining whether to batch update pulse data.
-volatile uint32_t updateBatchThreshold = 0;
-volatile uint32_t nextUpdateBatchThreshold = 0;
 
 // increment for pulse
 volatile uint16_t increment = 0;
@@ -69,13 +66,17 @@ volatile uint16_t increment = 0;
 // counter overruns the batch update threshold
 volatile uint8_t overrun = 0;
 
-// capture compare register value
-volatile uint16_t captureCompareReg = 0;
+// record the axes that their DMA transfer is completed
+volatile uint8_t completedDMATransferAxes = 0; // bit 0: x axis, bit 1: y axis, bit 2: z axis
+
+// current counter value only for calculating the pulse data
+volatile uint32_t currentCounterValue = MINIMUN_LOW_PULSE_WIDTH_TICKS;
 
 /**
  * Function Prototypes
  */
 static void TIM_DMADelayPulseCplt(DMA_HandleTypeDef *hdma);
+void stepCalculatePulseData();
 void stepUpdateBuffer(doubleBufferArray_t *buffer, uint32_t start_value, uint32_t increment, size_t length);
 HAL_StatusTypeDef stepTimeOCStartDMA(TIM_HandleTypeDef *htim, uint32_t Channel, const uint32_t *pData, uint16_t Length);
 uint16_t stepRingBufferGetNext(axis_t axis);
@@ -95,6 +96,11 @@ void stepInit(void)
     INIT_TIM_DMA_PARAMETERS(axisTimerDMAParams, X_AXIS);
     INIT_TIM_DMA_PARAMETERS(axisTimerDMAParams, Y_AXIS);
     INIT_TIM_DMA_PARAMETERS(axisTimerDMAParams, Z_AXIS);
+
+    // initialize stepper parameters
+    INIT_STEPPER_ARRAY(stepper, X_AXIS);
+    INIT_STEPPER_ARRAY(stepper, Y_AXIS);
+    INIT_STEPPER_ARRAY(stepper, Z_AXIS);
 }
 
 // handler for step task
@@ -106,127 +112,161 @@ void stepTask(void *pvParameters)
     // set PD3 to high to enable level shifter
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_SET);
 
-    // compute increment for pulse
-    // increment = COMPUTE_INCREMENT_FOR_PULSE(1000, APB1_TIMER_CLOCK);
-    increment = COMPUTE_INCREMENT_FOR_PULSE(PULSE_FREQ, APB1_TIMER_CLOCK);
-    uint32_t offStatePulseWidth = increment - PULSE_WIDTH_TICKS;
-
-    /**
-     * Prepare buffer for each axis in a reverse order
-     * to ensure that all the slave timers are ready
-     * before the master timer starts.
-     */
-    for (int8_t i = NUM_DIMENSIONS - 1; i >= 0; i--)
-    {
-        // get timer and DMA parameters of this axis
-        TIM_DMA_Parameters_t *timDMAParamsPulse = &axisTimerDMAParams[i];
-
-        timDMAParamsPulse->lastCounterValue = 10;
-
-        // update all buffer data in ring buffer except the last one
-        for (uint16_t j = 0; j < RING_BUFFER_SIZE - GAP_HEAD_TAIL; j++)
-        {
-            // put data into ring buffer head
-            doubleBufferArray_t *pulseBuffer = (doubleBufferArray_t *)stepGetFreeDataAddress(i);
-
-            if (pulseBuffer == 0)
-                Error_Handler();
-
-            // update pulse data
-            stepUpdateBuffer(pulseBuffer, timDMAParamsPulse->lastCounterValue + offStatePulseWidth, increment, DOUBLE_BUFFER_SIZE);
-
-            // increment ring buffer head
-            stepRingBufferIncrementHead(i);
-
-            // set last counter value
-            timDMAParamsPulse->lastCounterValue = (*pulseBuffer)[DOUBLE_BUFFER_SIZE - 1];
-
-            // set update batch threshold
-            if (i == 0 && j == 0)
-                updateBatchThreshold = timDMAParamsPulse->lastCounterValue;
-        }
-
-        // request two buffers ready for transfer
-        doubleBufferArray_t *pulseBufferM0 = (doubleBufferArray_t *)stepGetAvailableDataAddress(i);
-        doubleBufferArray_t *pulseBufferM1 = (doubleBufferArray_t *)stepGetAvailableDataAddress(i);
-
-        // reset timer counter
-        __HAL_TIM_SET_COUNTER(timDMAParamsPulse->htim, 0);
-
-        // set compare value to the first element of the buffer in timer
-        // __HAL_TIM_SET_COMPARE(timDMAParamsPulse->htim, timDMAParamsPulse->TIM_CHANNEL, 10);
-
-        // start double buffer mode
-        TIM_OC_Start_DMA_Double_Buffer(timDMAParamsPulse->htim, timDMAParamsPulse->TIM_CHANNEL, (uint32_t)pulseBufferM0, timDMAParamsPulse->CCRx_Addr, (uint32_t)pulseBufferM1, DOUBLE_BUFFER_SIZE);
-
-        // generate compare event
-        switch (i)
-        {
-        case X_AXIS:
-            HAL_TIM_GenerateEvent(timDMAParamsPulse->htim, TIM_EVENTSOURCE_CC3);
-            __HAL_TIM_ENABLE(timDMAParamsPulse->htim);
-            break;
-        case Y_AXIS:
-            HAL_TIM_GenerateEvent(timDMAParamsPulse->htim, TIM_EVENTSOURCE_CC4);
-            break;
-        case Z_AXIS:
-            HAL_TIM_GenerateEvent(timDMAParamsPulse->htim, TIM_EVENTSOURCE_CC1);
-            __HAL_TIM_ENABLE(timDMAParamsPulse->htim);
-            break;
-        case NUM_DIMENSIONS:
-        default:
-            break;
-        }
-    }
-
-    // compute increment for pulse
-    increment = COMPUTE_INCREMENT_FOR_PULSE(PULSE_FREQ, APB1_TIMER_CLOCK);
+    // set general notification to data not available to start the process
+    generalNotification |= (GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE | GENERAL_NOTIFICATION_FIRST_TIME_START);
 
     // Infinite loop
     for (;;)
     {
-        // update buffer for each axis
-        for (uint8_t i = 0; i < NUM_DIMENSIONS; i++)
-        {
-            // check if buffer shall be updated
-            doubleBufferArray_t *buf = (doubleBufferArray_t *)stepGetFreeDataAddress(i);
-
-            if (buf == 0)
-            {
-                continue;
-            }
-
-            // get timer and DMA parameters of this axis
-            TIM_DMA_Parameters_t *timDMAParamsPulse = &axisTimerDMAParams[i];
-
-            // set PD4 to high ===> signal the start of updating buffer
-            HAL_GPIO_WritePin(GPIOD, GPIO_PIN_4, GPIO_PIN_SET);
-
-            // update buffer
-            stepUpdateBuffer((doubleBufferArray_t *)buf, timDMAParamsPulse->lastCounterValue + offStatePulseWidth, increment, DOUBLE_BUFFER_SIZE);
-
-            // increment ring buffer head
-            stepRingBufferIncrementHead(i);
-
-            // set last counter value
-            timDMAParamsPulse->lastCounterValue = (*buf)[DOUBLE_BUFFER_SIZE - 1];
-
-            // set batch update threshold
-            if (i == 0)
-                nextUpdateBatchThreshold = timDMAParamsPulse->lastCounterValue;
-            // set PD4 to low ===> signal the end of updating buffer
-            HAL_GPIO_WritePin(GPIOD, GPIO_PIN_4, GPIO_PIN_RESET);
-        }
+        // prepare pulse data
+        stepCalculatePulseData();
 
         // check if there is a notification to resume DMA stream asking from the timer interrupt
-        if (generalNotification & GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE)
+        if (!(generalNotification & GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE))
         {
-            // set PD5 to high ===> signal the start of resuming DMA stream from task
-            HAL_GPIO_WritePin(GPIOD, GPIO_PIN_5, GPIO_PIN_SET);
-
-            // set PD5 to low ===> signal the end of resuming DMA stream from task
-            HAL_GPIO_WritePin(GPIOD, GPIO_PIN_5, GPIO_PIN_RESET);
+            continue;
         }
+
+        // check if there is any buffer available
+        if (stepRingBufferGetTail(Z_AXIS) == UINT16_MAX)
+        {
+            continue;
+        }
+
+        // clear the flag
+        generalNotification &= ~GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE;
+
+        // check if it is the first time to start the process
+        if (generalNotification & GENERAL_NOTIFICATION_FIRST_TIME_START)
+        {
+            // clear the flag
+            generalNotification &= ~GENERAL_NOTIFICATION_FIRST_TIME_START;
+
+            // set up each axis
+            for (int8_t i = NUM_DIMENSIONS - 1; i >= 0; i--)
+            {
+                // get timer and DMA parameters of this axis
+                TIM_DMA_Parameters_t *timDMAParamsPulse = &axisTimerDMAParams[i];
+
+                // reset timer
+                __HAL_TIM_SetCounter(timDMAParamsPulse->htim, 0);
+
+                // get available data address
+                uint32_t address = stepGetAvailableDataAddress(i);
+
+                // start timer output mode with DMA stream
+                stepTimeOCStartDMA(timDMAParamsPulse->htim, timDMAParamsPulse->TIM_CHANNEL, (uint32_t *)address, ((pulse_t *)address)->length);
+
+                // generate compare event
+                HAL_TIM_GenerateEvent(timDMAParamsPulse->htim, timDMAParamsPulse->CompareEventID);
+
+                // check if it is the master timer
+                if (timDMAParamsPulse->htim != &MASTER_TIM_HANDLE)
+                {
+                    // enable the timer
+                    __HAL_TIM_ENABLE(timDMAParamsPulse->htim);
+                }
+            }
+
+            // enable the master timer
+            __HAL_TIM_ENABLE(&MASTER_TIM_HANDLE);
+        }
+        else // not the first time to start the process, but out of data asking from the timer interrupt
+        {
+            // set up each axis
+            for (uint8_t i = 0; i < NUM_DIMENSIONS; i++)
+            {
+                // get timer and DMA parameters of this axis
+                TIM_DMA_Parameters_t *timDMAParamsPulse = &axisTimerDMAParams[i];
+
+                // get available data address
+                uint32_t address = stepGetAvailableDataAddress(i);
+
+                // resume DMA stream with updated buffer and length
+                RESUME_DMA_STREAM_WITH_TC(timDMAParamsPulse->htim->hdma[timDMAParamsPulse->TIM_DMA_ID], address, ((pulse_t *)address)->length);
+            }
+
+            // restart counter
+            TIM_START_COUNTER(MASTER_TIM_HANDLE);
+        }
+    }
+}
+
+void stepCalculatePulseData()
+{
+    static uint8_t getNewBuffer = (1 << NUM_DIMENSIONS) - 1; // bit 0: x axis, bit 1: y axis, bit 2: z axis
+    static pulse_t *pulse[NUM_DIMENSIONS] = {0};
+
+    // loop through all axes
+    for (uint8_t i = 0; i < NUM_DIMENSIONS; i++)
+    {
+        stepper_t *st = &stepper[i];
+
+        // determine if a new buffer is needed
+        if (getNewBuffer & (1 << i))
+        {
+            // get new buffer
+            pulse[i] = (pulse_t *)stepGetFreeDataAddress(i);
+
+            // check if the buffer is available
+            if (pulse[i] == 0)
+            {
+                return;
+            }
+
+            // reset buffer length
+            pulse[i]->length = 0;
+
+            // reset the buffer index
+            st->buf_index = 0;
+
+            // initialize stepper parameters
+            INIT_STEPPER_ARRAY(stepper, i);
+
+            // reset the flag
+            getNewBuffer &= ~(1 << i);
+        }
+
+        // determine if a pair of pulse data should be added in this axis or not by Bresenham line algorithm.
+        // a pair of pulse data consists of a pulse data for the on state and a pulse data for the off state.
+        st->counter += st->steps;
+
+        if (st->counter > STEP_EVENT_COUNT)
+        {
+            st->counter -= STEP_EVENT_COUNT;
+
+            // add pulse data
+            // add ON state pulse data
+            pulse[i]->data[st->buf_index] = currentCounterValue;
+            st->buf_index++;
+            // add OFF state pulse data
+            pulse[i]->data[st->buf_index] = currentCounterValue + PULSE_WIDTH_TICKS;
+            st->buf_index++;
+
+            // increment the length of available data
+            pulse[i]->length += 2;
+
+            // check if the buffer is full
+            if (st->buf_index >= DOUBLE_BUFFER_SIZE)
+            {
+                // set the flag to get new buffer
+                getNewBuffer |= (1 << i);
+            }
+        }
+    }
+
+    // update variables
+    currentCounterValue += MINIMUM_PULSE_PERIOD_TICKS;
+
+    // check if any buffer is full of data
+    if (getNewBuffer > 0)
+    {
+        // increment ring buffer head for all axes
+        stepRingBufferIncrementHead(X_AXIS);
+        stepRingBufferIncrementHead(Y_AXIS);
+        stepRingBufferIncrementHead(Z_AXIS);
+
+        getNewBuffer = (1 << NUM_DIMENSIONS) - 1;
     }
 }
 
@@ -460,111 +500,71 @@ static void TIM_DMADelayPulseCplt(DMA_HandleTypeDef *hdma)
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 {
     // stop counter
-    // TIM_STOP_COUNTER(MASTER_TIM); // timer x axis
+    TIM_STOP_COUNTER(MASTER_TIM_HANDLE); // timer x axis
 
-    // // set PD6 to high ===> signal the start of ISR
-    // HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);
+    // set PD6 to high ===> signal the start of ISR
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);
 
-    // // read capture compare register
-    // captureCompareReg = TIM_GET_COMPARE(htim, htim->Channel);
+    // identify the axis
+    axis_t axis = GET_AXIS_FROM_TIM_HANDLE(htim);
 
-    // // check if the capture compare register is equal to the batch update threshold
-    // if (captureCompareReg != updateBatchThreshold)
+    /**
+     * Here we disable the following checking for a better performance.
+     */
+    // if (axis == NUM_DIMENSIONS)
     // {
-    //     // restart counter
-    //     TIM_START_COUNTER(MASTER_TIM);
+    //     // resume counter
+    //     TIM_START_COUNTER(MASTER_TIM_HANDLE); // timer x axis
 
-    //     // set PD5 to low ===> signal the end of ISR
-    //     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_5, GPIO_PIN_RESET);
+    //     // set PD6 to low ===> signal the end of ISR
+    //     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_RESET);
+
     //     return;
     // }
 
-    // // suspend DMA stream and clear interrupt flag
-    // for (uint8_t i = 0; i < NUM_DIMENSIONS; i++)
-    // {
-    //     // get timer and DMA parameters of this axis
-    //     TIM_DMA_Parameters_t *timDMAParamsPulse = &axisTimerDMAParams[i].pulse;
-    //     TIM_DMA_Parameters_t *timDMAParamsDir = &axisTimerDMAParams[i].dir;
+    // set the axis that its DMA transfer is completed
+    completedDMATransferAxes |= (1 << axis);
 
-    //     // suspend DMA stream
-    //     SUSPEND_DMA_STREAM(timDMAParamsPulse->htim->hdma[timDMAParamsPulse->TIM_DMA_ID]);
-    //     SUSPEND_DMA_STREAM(timDMAParamsDir->htim->hdma[timDMAParamsDir->TIM_DMA_ID]);
+    // check if all axes have completed their DMA transfer
+    if (completedDMATransferAxes == (1 << NUM_DIMENSIONS) - 1)
+    {
+        // reset the axes that their DMA transfer is completed
+        completedDMATransferAxes = 0;
 
-    //     // clear all DMA interrupt flags
-    //     CLEAR_DMA_IT(timDMAParamsPulse->htim->hdma[timDMAParamsPulse->TIM_DMA_ID]);
-    //     CLEAR_DMA_IT(timDMAParamsDir->htim->hdma[timDMAParamsDir->TIM_DMA_ID]);
-    // }
+        // set generatl notification to all axes have completed their DMA transfer
+        generalNotification |= GENERAL_NOTIFICATION_ALL_AXES_DMA_COMPLETED;
+    }
 
-    // // check if counter overruns the batch update threshold
-    // uint32_t counter = __HAL_TIM_GET_COUNTER(MASTER_TIM_HANDLE);
-    // int32_t diff = counter - updateBatchThreshold;
-    // if ((diff > 0) && (diff < HALF_PERIOD))
-    //     overrun = 1;
-    // else if ((diff < 0) && (diff < -HALF_PERIOD))
-    //     overrun = 1;
-    // else
-    //     overrun = 0;
+    // suspend DMA stream
+    // ==> to update DMA buffer length and address, DMA stream should be suspended
+    SUSPEND_DMA_STREAM(htim->hdma[GET_TIM_DMA_ID_FROM_AXIS(axis)]);
 
-    // // check if the preparing buffer is ready
-    // if (generalNotification & GENERAL_NOTIFICATION_DATA_READY)
-    // {
-    //     // set PD7 to high ===> signal the start of updating DMA buffer
-    //     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_SET);
+    // get the available data address
+    uint32_t address = stepGetAvailableDataAddress(axis);
 
-    //     // disable output compare channel
-    //     // TIM_CCxChannelCmd(Z_AXIS_TIM, Z_AXIS_PULSE_TIM_CHANNEL, TIM_CCx_DISABLE);
+    // check if the address is valid
+    if (address != 0)
+    {
+        // set PD7 to high ===> signal the start of updating DMA buffer
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_SET);
 
-    //     // force OC1 to high
-    //     // reset OC1M bits
-    //     // Z_AXIS_TIM->CCMR1 &= ~TIM_CCMR1_OC1M;
-    //     // set OC1M bits to 0101
-    //     // Z_AXIS_TIM->CCMR1 |= TIM_OCMODE_FORCED_ACTIVE;
+        // resume DMA stream with updated buffer and length
+        RESUME_DMA_STREAM_WITH_TC(htim->hdma[GET_TIM_DMA_ID_FROM_AXIS(axis)], address, ((pulse_t *)address)->length);
 
-    //     for (uint8_t i = 0; i < NUM_DIMENSIONS; i++)
-    //     {
-    //         // get timer and DMA parameters of this axis
-    //         TIM_DMA_Parameters_t *timDMAParamsPulse = &axisTimerDMAParams[i].pulse;
-    //         TIM_DMA_Parameters_t *timDMAParamsDir = &axisTimerDMAParams[i].dir;
+        // restart counter
+        TIM_START_COUNTER(MASTER_TIM_HANDLE);
 
-    //         // swap buffer
-    //         SWAP_BUFFER_UINT32(timDMAParamsPulse->preparedBuffer, timDMAParamsPulse->preparingBuffer);
-    //         SWAP_BUFFER_UINT32(timDMAParamsDir->preparedBuffer, timDMAParamsDir->preparingBuffer);
+        // set PD7 to low ===> signal the end of updating DMA buffer
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_RESET);
+    }
+    else
+    {
+        // notify main task to update pulse data
+        generalNotification |= GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE;
+    }
 
-    //         // check if counter matches compare value
-    //         if (overrun)
-    //         {
-    //             // set counter to capture compare register + 1
-    //             __HAL_TIM_SET_COUNTER(timDMAParamsPulse->htim, captureCompareReg + 1);
-    //         }
-
-    //         // set compare value to the first element of the buffer in timer
-    //         // __HAL_TIM_SET_COMPARE(timDMAParamsPulse->htim, timDMAParamsPulse->TIM_CHANNEL, (*timDMAParamsPulse->preparedBuffer)[0]);
-
-    //         // resume DMA stream with updated buffer and length
-    //         // RESUME_DMA_STREAM_WITH_TC(timDMAParamsPulse->htim->hdma[timDMAParamsPulse->TIM_DMA_ID], ((uint32_t *)(timDMAParamsPulse->preparedBuffer) + 1), timDMAParamsPulse->lengthAvailableData - 1);
-    //         RESUME_DMA_STREAM_WITH_TC(timDMAParamsPulse->htim->hdma[timDMAParamsPulse->TIM_DMA_ID], timDMAParamsPulse->preparedBuffer, timDMAParamsPulse->lengthAvailableData);
-    //         RESUME_DMA_STREAM_WITH_TC(timDMAParamsDir->htim->hdma[timDMAParamsDir->TIM_DMA_ID], timDMAParamsDir->preparedBuffer, timDMAParamsDir->lengthAvailableData);
-    //     }
-    //     // set batch update threshold with the next batch update threshold
-    //     updateBatchThreshold = nextUpdateBatchThreshold;
-
-    //     // restart counter
-    //     TIM_START_COUNTER(MASTER_TIM);
-
-    //     // reset the notification
-    //     generalNotification &= ~GENERAL_NOTIFICATION_DATA_READY;
-
-    //     // set PD7 to low ===> signal the end of updating DMA buffer
-    //     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_RESET);
-    // }
-    // else
-    // {
-    //     // notify main task to update pulse data
-    //     generalNotification |= GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE;
-    // }
-
-    // // set PD6 to low ===> signal the end of ISR
-    // HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_RESET);
+    // set PD6 to low ===> signal the end of ISR
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_RESET);
 }
 
 /**
@@ -585,7 +585,7 @@ void PingPongM0TransferCompleteCallback(TIM_HandleTypeDef *htim)
     if (address == 0) // no data available
     {
         // stop counter
-        TIM_STOP_COUNTER(&MASTER_TIM_HANDLE); // timer x axis
+        TIM_STOP_COUNTER(MASTER_TIM_HANDLE); // timer x axis
 
         // set notification to data not available
         generalNotification |= GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE;
@@ -593,7 +593,7 @@ void PingPongM0TransferCompleteCallback(TIM_HandleTypeDef *htim)
         return;
     }
 
-    if(axis == Y_AXIS)
+    if (axis == Y_AXIS)
     {
         // debug here
     }
@@ -623,7 +623,7 @@ void PingPongM1TransferCompleteCallback(TIM_HandleTypeDef *htim)
     if (address == 0) // no data available
     {
         // stop counter
-        TIM_STOP_COUNTER(&MASTER_TIM_HANDLE); // timer x axis
+        TIM_STOP_COUNTER(MASTER_TIM_HANDLE); // timer x axis
 
         // set notification to data not available
         generalNotification |= GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE;

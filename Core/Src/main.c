@@ -26,6 +26,7 @@
 #include "stm32f7xx_grbl.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "ethernet_if.h"
 
 /* USER CODE END Includes */
 
@@ -113,6 +114,9 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM5_Init();
   /* USER CODE BEGIN 2 */
+  // init TCP
+  tcp_server_init();
+
   // create tasks
   xTaskCreate(stepTask, "StepTask", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, &xHandleStepTask);
 

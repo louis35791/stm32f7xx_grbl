@@ -14,7 +14,7 @@ NetworkInterface_t xInterfaces[1];
 struct xNetworkEndPoint xEndPoints[1];
 uint8_t socketShutdownTimeout = 0;
 extern TaskHandle_t xHandleUpdatePulseData;
-extern volatile uint32_t pulseFrequency;
+// extern volatile uint32_t pulseFrequency;
 
 BaseType_t tcp_server_init()
 {
@@ -254,18 +254,18 @@ void prvProcessData(char *cRxedData, BaseType_t lBytesReceived, Socket_t xConnec
         case 'f':
         case 'F':
             i++;
-            pulseFrequency = 0;
-            while (cRxedData[i] != '\n' && i < lBytesReceived)
-            {
-                if (isDigit(cRxedData[i]))
-                {
-                    // cRxedData[i] is an ASCII code number
-                    pulseFrequency = pulseFrequency * 10 + (cRxedData[i] - '0');
-                }
-                i++;
-            }
-            FreeRTOS_debug_printf(("Pulse frequency: %d\n", pulseFrequency));
-            xTaskNotifyGive(xHandleUpdatePulseData);
+            // pulseFrequency = 0;
+            // while (cRxedData[i] != '\n' && i < lBytesReceived)
+            // {
+            //     if (isDigit(cRxedData[i]))
+            //     {
+            //         // cRxedData[i] is an ASCII code number
+            //         pulseFrequency = pulseFrequency * 10 + (cRxedData[i] - '0');
+            //     }
+            //     i++;
+            // }
+            // FreeRTOS_debug_printf(("Pulse frequency: %d\n", pulseFrequency));
+            // xTaskNotifyGive(xHandleUpdatePulseData);
 
             break;
         case 'p':
