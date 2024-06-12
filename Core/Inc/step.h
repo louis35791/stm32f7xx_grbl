@@ -10,6 +10,12 @@
 #define MINIMUN_LOW_PULSE_WIDTH_TICKS       (uint32_t)((MINIMUN_LOW_PULSE_WIDTH_US * APB1_TIMER_CLOCK) / 1000000) // minimum pulse width in ticks
 #define MINIMUM_PULSE_PERIOD_TICKS          (PULSE_WIDTH_TICKS + MINIMUN_LOW_PULSE_WIDTH_TICKS) // minimum pulse period in ticks
 
+/**
+ * DMA 1 Stream Assignment:
+ * x-axis: stream 1
+ * y-axis: stream 6
+ * z-axis: stream 2
+ */
 #define X_AXIS_TIM_BASE                     TIM2_BASE
 #define Y_AXIS_TIM_BASE                     TIM2_BASE
 #define Z_AXIS_TIM_BASE                     TIM5_BASE

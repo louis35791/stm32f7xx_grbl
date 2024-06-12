@@ -11,6 +11,7 @@
 #define HALF_PERIOD 0x7FFF // 0xFFFF / 2
 #define RING_BUFFER_SIZE 6
 #define GAP_HEAD_TAIL 1 // gap between head and tail, two buffers in used by DMA
+#define STEP_INCREMENT 5
 
 /**
  * Type Defines
@@ -101,6 +102,13 @@ void stepInit(void)
     INIT_STEPPER_ARRAY(stepper, X_AXIS);
     INIT_STEPPER_ARRAY(stepper, Y_AXIS);
     INIT_STEPPER_ARRAY(stepper, Z_AXIS);
+
+    // ========================================
+    // starting speed of each axis
+    // ========================================
+    stepper[X_AXIS].steps = 1;
+    stepper[Y_AXIS].steps = 1;
+    stepper[Z_AXIS].steps = 1;
 }
 
 // handler for step task
@@ -196,6 +204,8 @@ void stepCalculatePulseData()
 {
     static uint8_t getNewBuffer = (1 << NUM_DIMENSIONS) - 1; // bit 0: x axis, bit 1: y axis, bit 2: z axis
     static pulse_t *pulse[NUM_DIMENSIONS] = {0};
+    static uint32_t oneSecondCounter = 0; // counter for one second, i.e. up to APB1 clock frequency
+    static uint8_t rampAccel = 1;         // flag to indicate the acceleration phase
 
     // loop through all axes
     for (uint8_t i = 0; i < NUM_DIMENSIONS; i++)
@@ -221,7 +231,8 @@ void stepCalculatePulseData()
             st->buf_index = 0;
 
             // initialize stepper parameters
-            INIT_STEPPER_ARRAY(stepper, i);
+            st->counter = STEP_EVENT_COUNT >> 1;
+            st->buf_index = 0;
 
             // reset the flag
             getNewBuffer &= ~(1 << i);
@@ -267,6 +278,35 @@ void stepCalculatePulseData()
         stepRingBufferIncrementHead(Z_AXIS);
 
         getNewBuffer = (1 << NUM_DIMENSIONS) - 1;
+    }
+
+    if (rampAccel == 0)
+        return;
+
+    oneSecondCounter += MINIMUM_PULSE_PERIOD_TICKS;
+
+    if (oneSecondCounter >= APB1_TIMER_CLOCK)
+    {
+        oneSecondCounter -= APB1_TIMER_CLOCK;
+
+        stepper[X_AXIS].steps += STEP_INCREMENT;
+        if (stepper[X_AXIS].steps > STEP_X)
+        {
+            stepper[X_AXIS].steps = STEP_X;
+            rampAccel = 0;
+        }
+
+        stepper[Y_AXIS].steps += STEP_INCREMENT;
+        if (stepper[Y_AXIS].steps > STEP_Y)
+        {
+            stepper[Y_AXIS].steps = STEP_Y;
+        }
+
+        stepper[Z_AXIS].steps += STEP_INCREMENT;
+        if (stepper[Z_AXIS].steps > STEP_Z)
+        {
+            stepper[Z_AXIS].steps = STEP_Z;
+        }
     }
 }
 
