@@ -272,8 +272,18 @@ void prvProcessData(char *cRxedData, BaseType_t lBytesReceived, Socket_t xConnec
         case 'P':
         {
             char str[12] = {'\0'}; // Buffer big enough for 32-bit number. 10 digits max + '\0'
-            sprintf(str, "%ld", readDegree());
+            sprintf(str, "%ld", encoderReadDegree());
             FreeRTOS_send(xConnectedSocket, str, sizeof(str), 0);
+            break;
+        }
+        case 's':
+        case 'S':
+        {
+            char str[12] = {'\0'}; // Buffer big enough for 32-bit number. 10 digits max + '\0'
+            float speed = encoderReadRPM();
+            sprintf(str, "%.2f", speed);
+            FreeRTOS_send(xConnectedSocket, str, sizeof(str), 0);
+            vLoggingPrintf(("RPM: %s\n", str));
             break;
         }
         default:

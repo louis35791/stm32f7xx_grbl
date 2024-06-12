@@ -11,7 +11,8 @@
 #define HALF_PERIOD 0x7FFF // 0xFFFF / 2
 #define RING_BUFFER_SIZE 6
 #define GAP_HEAD_TAIL 1 // gap between head and tail, two buffers in used by DMA
-#define STEP_INCREMENT 5
+#define STEP_INCREMENT_PERIOD APB1_TIMER_CLOCK / 100
+#define STEP_INCREMENT 3
 
 /**
  * Type Defines
@@ -285,9 +286,9 @@ void stepCalculatePulseData()
 
     oneSecondCounter += MINIMUM_PULSE_PERIOD_TICKS;
 
-    if (oneSecondCounter >= APB1_TIMER_CLOCK)
+    if (oneSecondCounter >= STEP_INCREMENT_PERIOD)
     {
-        oneSecondCounter -= APB1_TIMER_CLOCK;
+        oneSecondCounter -= STEP_INCREMENT_PERIOD;
 
         stepper[X_AXIS].steps += STEP_INCREMENT;
         if (stepper[X_AXIS].steps > STEP_X)

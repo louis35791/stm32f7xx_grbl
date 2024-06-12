@@ -43,10 +43,10 @@
 #define Y_AXIS_COMPARE_EVENT_ID             TIM_EVENTSOURCE_CC4
 #define Z_AXIS_COMPARE_EVENT_ID             TIM_EVENTSOURCE_CC1
 
-#define STEP_EVENT_COUNT    100
-#define STEP_X              100
-#define STEP_Y              50
-#define STEP_Z              20
+#define STEP_EVENT_COUNT    1000
+#define STEP_X              600
+#define STEP_Y              100
+#define STEP_Z              100
 
 #define GENERAL_NOTIFICATION_FIRST_TIME_START       0x01
 #define GENERAL_NOTIFICATION_DATA_READY             0x02
