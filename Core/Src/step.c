@@ -74,6 +74,9 @@ volatile uint8_t completedDMATransferAxes = 0; // bit 0: x axis, bit 1: y axis, 
 // current counter value only for calculating the pulse data
 volatile uint32_t currentCounterValue = MINIMUN_LOW_PULSE_WIDTH_TICKS;
 
+// handle for step task
+TaskHandle_t xHandleStepTask = NULL;
+
 /**
  * Function Prototypes
  */
@@ -110,14 +113,14 @@ void stepInit(void)
     stepper[X_AXIS].steps = 1;
     stepper[Y_AXIS].steps = 1;
     stepper[Z_AXIS].steps = 1;
+
+    // create tasks
+    xTaskCreate(stepTask, "StepTask", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, &xHandleStepTask);
 }
 
 // handler for step task
 void stepTask(void *pvParameters)
 {
-    // initialize step function
-    stepInit();
-
     // set PD3 to high to enable level shifter
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3, GPIO_PIN_SET);
 

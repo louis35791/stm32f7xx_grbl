@@ -2,6 +2,7 @@
 #include "stm32f7xx_grbl.h"
 #include "ethernet_if.h"
 #include "encoder.h"
+#include "grbl.h"
 
 #define BUFFER_SIZE 512
 
@@ -9,12 +10,13 @@ extern NetworkInterface_t *pxSTM32Fxx_FillInterfaceDescriptor(BaseType_t xEMACIn
                                                               NetworkInterface_t *pxInterface);
 static void prvCreateTCPServerSocketTasks(void *pvParameters);
 static void prvEchoClientRxTask(void *pvParameters);
+static void prvSerialTask(void *pvParameters);
 
 NetworkInterface_t xInterfaces[1];
 struct xNetworkEndPoint xEndPoints[1];
 uint8_t socketShutdownTimeout = 0;
 extern TaskHandle_t xHandleUpdatePulseData;
-// extern volatile uint32_t pulseFrequency;
+TaskHandle_t serialTaskHandle;
 
 BaseType_t tcp_server_init()
 {
@@ -34,6 +36,10 @@ BaseType_t tcp_server_init()
        are created in the vApplicationIPNetworkEventHook() hook function
        below.  The hook function is called when the network connects. */
     FreeRTOS_IPInit_Multi();
+
+    // Create the serial task
+    xTaskCreate(prvSerialTask, "SerialTask", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, &serialTaskHandle);
+
     return SUCCESS;
 }
 
@@ -249,6 +255,11 @@ void prvProcessData(char *cRxedData, BaseType_t lBytesReceived, Socket_t xConnec
 
     for (; i < lBytesReceived; i++)
     {
+        /**
+         * Process the received data
+         */
+        serial_rx_irq(cRxedData[i]);
+
         switch (cRxedData[i])
         {
         case 'f':
@@ -371,6 +382,22 @@ static void prvEchoClientRxTask(void *pvParameters)
 
     /* Must not drop off the end of the RTOS task - delete the RTOS task. */
     vTaskDelete(NULL);
+}
+
+static void prvSerialTask(void *pvParameters)
+{
+    for (;;)
+    {
+        // Wait for a notification from serial task in serial.c of grbl
+        ulTaskNotifyTake(pdFALSE, portMAX_DELAY);   // decrement the notification count
+
+        /**
+         * TODO: Implement serial task
+         * - check if ethernet is ready to send data
+         * - concatenate the data to be sent until a newline character, '\n', is received
+         */
+        uint8_t chr = serial_tx_irq();
+    }
 }
 
 void HAL_ETH_ErrorCallback(ETH_HandleTypeDef *heth)

@@ -60,6 +60,21 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define Z_LIMIT_Pin GPIO_PIN_2
+#define Z_LIMIT_GPIO_Port GPIOE
+#define Z_LIMIT_EXTI_IRQn EXTI2_IRQn
+#define CTRL_RESET_Pin GPIO_PIN_3
+#define CTRL_RESET_GPIO_Port GPIOE
+#define CTRL_RESET_EXTI_IRQn EXTI3_IRQn
+#define CTRL_FEED_HOLD_Pin GPIO_PIN_4
+#define CTRL_FEED_HOLD_GPIO_Port GPIOE
+#define CTRL_FEED_HOLD_EXTI_IRQn EXTI4_IRQn
+#define CTRL_CYCLE_START_Pin GPIO_PIN_5
+#define CTRL_CYCLE_START_GPIO_Port GPIOE
+#define CTRL_CYCLE_START_EXTI_IRQn EXTI9_5_IRQn
+#define PROBE_Pin GPIO_PIN_6
+#define PROBE_GPIO_Port GPIOE
+#define PROBE_EXTI_IRQn EXTI9_5_IRQn
 #define USER_Btn_Pin GPIO_PIN_13
 #define USER_Btn_GPIO_Port GPIOC
 #define MCO_Pin GPIO_PIN_0
@@ -70,6 +85,10 @@ void Error_Handler(void);
 #define RMII_REF_CLK_GPIO_Port GPIOA
 #define RMII_MDIO_Pin GPIO_PIN_2
 #define RMII_MDIO_GPIO_Port GPIOA
+#define X_DIR_Pin GPIO_PIN_4
+#define X_DIR_GPIO_Port GPIOA
+#define Z_DIR_Pin GPIO_PIN_5
+#define Z_DIR_GPIO_Port GPIOA
 #define RMII_CRS_DV_Pin GPIO_PIN_7
 #define RMII_CRS_DV_GPIO_Port GPIOA
 #define RMII_RXD0_Pin GPIO_PIN_4
@@ -78,6 +97,8 @@ void Error_Handler(void);
 #define RMII_RXD1_GPIO_Port GPIOC
 #define LD1_Pin GPIO_PIN_0
 #define LD1_GPIO_Port GPIOB
+#define Y_DIR_Pin GPIO_PIN_11
+#define Y_DIR_GPIO_Port GPIOB
 #define RMII_TXD1_Pin GPIO_PIN_13
 #define RMII_TXD1_GPIO_Port GPIOB
 #define LD3_Pin GPIO_PIN_14
@@ -122,6 +143,12 @@ void Error_Handler(void);
 #define SW0_GPIO_Port GPIOB
 #define LD2_Pin GPIO_PIN_7
 #define LD2_GPIO_Port GPIOB
+#define X_LIMIT_Pin GPIO_PIN_0
+#define X_LIMIT_GPIO_Port GPIOE
+#define X_LIMIT_EXTI_IRQn EXTI0_IRQn
+#define Y_LIMIT_Pin GPIO_PIN_1
+#define Y_LIMIT_GPIO_Port GPIOE
+#define Y_LIMIT_EXTI_IRQn EXTI1_IRQn
 
 /* USER CODE BEGIN Private defines */
 
