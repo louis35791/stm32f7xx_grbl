@@ -74,9 +74,16 @@ void Error_Handler(void);
 #define CTRL_CYCLE_START_EXTI_IRQn EXTI9_5_IRQn
 #define PROBE_Pin GPIO_PIN_6
 #define PROBE_GPIO_Port GPIOE
-#define PROBE_EXTI_IRQn EXTI9_5_IRQn
 #define USER_Btn_Pin GPIO_PIN_13
 #define USER_Btn_GPIO_Port GPIOC
+#define STEP_DISABLE_Pin GPIO_PIN_6
+#define STEP_DISABLE_GPIO_Port GPIOF
+#define COOLANT_Pin GPIO_PIN_7
+#define COOLANT_GPIO_Port GPIOF
+#define SPINDLE_ENABLE_Pin GPIO_PIN_8
+#define SPINDLE_ENABLE_GPIO_Port GPIOF
+#define SPINDLE_DIR_Pin GPIO_PIN_9
+#define SPINDLE_DIR_GPIO_Port GPIOF
 #define MCO_Pin GPIO_PIN_0
 #define MCO_GPIO_Port GPIOH
 #define RMII_MDC_Pin GPIO_PIN_1

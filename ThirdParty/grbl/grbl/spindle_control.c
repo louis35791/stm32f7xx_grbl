@@ -44,10 +44,12 @@ void spindle_init()
     #endif
     pwm_gradient = SPINDLE_PWM_RANGE/(settings.rpm_max-settings.rpm_min);
   #else
-    SPINDLE_ENABLE_DDR |= (1<<SPINDLE_ENABLE_BIT); // Configure as output pin.
-    #ifndef ENABLE_DUAL_AXIS
-      SPINDLE_DIRECTION_DDR |= (1<<SPINDLE_DIRECTION_BIT); // Configure as output pin.
-    #endif
+    #ifdef AVR_ARCH
+      SPINDLE_ENABLE_DDR |= (1<<SPINDLE_ENABLE_BIT); // Configure as output pin.
+      #ifndef ENABLE_DUAL_AXIS
+        SPINDLE_DIRECTION_DDR |= (1<<SPINDLE_DIRECTION_BIT); // Configure as output pin.
+      #endif
+    #endif // AVR_ARCH
   #endif
 
   spindle_stop();

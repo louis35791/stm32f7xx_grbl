@@ -37,6 +37,7 @@
 
 /* Define to reduce code size. */
 #define EEPROM_IGNORE_SELFPROG //!< Remove SPM flag polling.
+#endif // AVR_ARCH
 
 /*! \brief  Read byte from EEPROM.
  *
@@ -49,10 +50,14 @@
  */
 unsigned char eeprom_get_char( unsigned int addr )
 {
+#if defined(AVR_ARCH)
 	do {} while( EECR & (1<<EEPE) ); // Wait for completion of previous write.
 	EEAR = addr; // Set EEPROM address register.
 	EECR = (1<<EERE); // Start EEPROM read operation.
 	return EEDR; // Return the byte read from EEPROM.
+#elif defined(STM32F7XX_ARCH)
+	return (unsigned char)(flashGetByte(addr));
+#endif // AVR_ARCH
 }
 
 /*! \brief  Write byte to EEPROM.
@@ -74,6 +79,7 @@ unsigned char eeprom_get_char( unsigned int addr )
  */
 void eeprom_put_char( unsigned int addr, unsigned char new_value )
 {
+#if defined(AVR_ARCH)
 	char old_value; // Old EEPROM value.
 	char diff_mask; // Difference mask, i.e. old value XOR new value.
 
@@ -123,6 +129,9 @@ void eeprom_put_char( unsigned int addr, unsigned char new_value )
 	}
 	
 	sei(); // Restore interrupt flag state.
+#elif defined(STM32F7XX_ARCH)
+	flashPutByte(addr, new_value);
+#endif // AVR_ARCH
 }
 
 // Extensions added as part of Grbl 
@@ -131,7 +140,9 @@ void eeprom_put_char( unsigned int addr, unsigned char new_value )
 void memcpy_to_eeprom_with_checksum(unsigned int destination, char *source, unsigned int size) {
   unsigned char checksum = 0;
   for(; size > 0; size--) { 
-    checksum = (checksum << 1) || (checksum >> 7);
+	//checksum = (checksum << 1) || (checksum >> 7);
+	// The above line is incorrect. It should be:
+    checksum = (checksum << 1) | (checksum >> 7);
     checksum += *source;
     eeprom_put_char(destination++, *(source++)); 
   }
@@ -142,12 +153,13 @@ int memcpy_from_eeprom_with_checksum(char *destination, unsigned int source, uns
   unsigned char data, checksum = 0;
   for(; size > 0; size--) { 
     data = eeprom_get_char(source++);
-    checksum = (checksum << 1) || (checksum >> 7);
+    // checksum = (checksum << 1) || (checksum >> 7);
+	// The above line is incorrect. It should be:
+    checksum = (checksum << 1) | (checksum >> 7);
     checksum += data;    
     *(destination++) = data; 
   }
   return(checksum == eeprom_get_char(source));
 }
 
-#endif // AVR_ARCH
 // end of file

@@ -17,17 +17,19 @@
   You should have received a copy of the GNU General Public License
   along with Grbl.  If not, see <http://www.gnu.org/licenses/>.
 */
-#if defined(AVR_ARCH)
 
 #include "grbl.h"
 
 
 void coolant_init()
 {
+#ifdef AVR_ARCH
   COOLANT_FLOOD_DDR |= (1 << COOLANT_FLOOD_BIT); // Configure as output pin
   #ifdef ENABLE_M7
     COOLANT_MIST_DDR |= (1 << COOLANT_MIST_BIT);
   #endif
+#endif // AVR_ARCH
+
   coolant_stop();
 }
 
@@ -125,5 +127,3 @@ void coolant_sync(uint8_t mode)
   protocol_buffer_synchronize(); // Ensure coolant turns on when specified in program.
   coolant_set_state(mode);
 }
-
-#endif // AVR_ARCH

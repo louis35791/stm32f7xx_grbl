@@ -22,6 +22,14 @@
 #ifndef nuts_bolts_h
 #define nuts_bolts_h
 
+#if defined(STM32F7XX_ARCH)
+#include "stm32f7xx_hal.h"
+
+#define _delay_ms(__MS__) HAL_Delay(__MS__);
+#define _delay_us(__US__) utilsDelayUs(__US__);
+
+#endif // STM32F7XX_ARCH
+
 #define false 0
 #define true 1
 

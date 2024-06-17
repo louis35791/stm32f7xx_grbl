@@ -3,8 +3,11 @@
 #define __STM32F7XX_GRBL_H
 
 /* includes */
-#include "stm32f7xx_gpio_ex.h"
+#include <stdint.h>
 #include "main.h"
+#include "stm32f7xx_flash_ex.h"
+#include "stm32f7xx_gpio_ex.h"
+#include "utils.h"
 #include "system_config.h"
 #include "step.h"
 #include "FreeRTOS.h"

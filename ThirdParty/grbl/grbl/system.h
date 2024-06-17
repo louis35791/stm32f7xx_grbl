@@ -208,5 +208,8 @@ void system_set_exec_accessory_override_flag(uint8_t mask);
 void system_clear_exec_motion_overrides();
 void system_clear_exec_accessory_overrides();
 
+#if defined(STEM32F7XX_ARCH)
+  void system_control_pin_irq(uint16_t GPIO_Pin);
+#endif
 
 #endif

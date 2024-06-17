@@ -147,7 +147,7 @@ uint8_t limits_get_state()
 #if defined(AVR_ARCH)
   ISR(LIMIT_INT_vect) // DEFAULT: Limit pin change interrupt process.
 #elif defined(STM32F7XX_ARCH)
-  void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+  void limits_isr(uint16_t GPIO_Pin)
 #endif // AVR_ARCH
   {
     // Ignore limit switches if already in an alarm state or in-process of executing an alarm.

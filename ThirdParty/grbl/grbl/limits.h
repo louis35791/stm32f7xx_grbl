@@ -22,7 +22,6 @@
 #ifndef limits_h
 #define limits_h
 
-
 // Initialize the limits module
 void limits_init();
 
@@ -37,5 +36,9 @@ void limits_go_home(uint8_t cycle_mask);
 
 // Check for soft limit violations
 void limits_soft_check(float *target);
+
+#if defined(STM32F7XX_ARCH)
+  void limits_isr(uint16_t GPIO_Pin);
+#endif // STM32F7XX_ARCH
 
 #endif

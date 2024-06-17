@@ -21,6 +21,10 @@
 
 #include "grbl.h"
 
+#if defined(STM32F7XX_ARCH)
+  #define __flash
+#endif // STM32F7XX_ARCH
+
 settings_t settings;
 
 const __flash settings_t defaults = {\

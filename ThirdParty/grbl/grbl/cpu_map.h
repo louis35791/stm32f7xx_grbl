@@ -285,9 +285,9 @@
   #define DIRECTION_MASK    ((1<<X_DIRECTION_BIT)|(1<<Y_DIRECTION_BIT)|(1<<Z_DIRECTION_BIT)) // All direction bits
 
   // Define stepper driver enable/disable output pin.
-  #define STEPPERS_DISABLE_GPIO_GROUP GPIOD
-  #define STEPPERS_DISABLE_BIT    6  // PD6
-  #define STEPPERS_DISABLE_MASK   (1<<TEPPERS_DISABLE_BIT)
+  #define STEPPERS_DISABLE_GPIO_GROUP GPIOF
+  #define STEPPERS_DISABLE_BIT    6  // PF6
+  #define STEPPERS_DISABLE_MASK   (1<<STEPPERS_DISABLE_BIT)
 
   // Define homing/hard limit switch input pins and limit interrupt vectors.
   // NOTE: All limit bit pins must be on the same port, but not on a port with other input pins (CONTROL).
@@ -314,6 +314,50 @@
   #define PROBE_PIN        PROBE_GPIO_GROUP->IDR
   #define PROBE_BIT       6  // PE6 EXTI9_5
   #define PROBE_MASK      (1<<PROBE_BIT)
+
+  #if !defined(ENABLE_DUAL_AXIS)
+
+    // Define flood and mist coolant enable output pins.
+    #define COOLANT_FLOOD_GPIO_GROUP GPIOF
+    #define COOLANT_FLOOD_PORT  COOLANT_FLOOD_GPIO_GROUP->ODR
+    #define COOLANT_FLOOD_BIT   7  // PF7
+
+    // Define spindle enable and spindle direction output pins.
+    #define SPINDLE_ENABLE_GPIO_GROUP GPIOF
+    #define SPINDLE_ENABLE_PORT   SPINDLE_ENABLE_GPIO_GROUP->ODR
+    // Z Limit pin and spindle PWM/enable pin swapped to access hardware PWM on Pin 11.
+    #define SPINDLE_ENABLE_BIT    8  // PF8
+    #ifndef USE_SPINDLE_DIR_AS_ENABLE_PIN
+      #define SPINDLE_DIRECTION_GPIO_GROUP GPIOF
+      #define SPINDLE_DIRECTION_PORT  SPINDLE_DIRECTION_GPIO_GROUP->ODR
+      #define SPINDLE_DIRECTION_BIT   9  // PF9
+    #endif
+
+    // Variable spindle configuration below. Do not change unless you know what you are doing.
+    // NOTE: Only used when variable spindle is enabled.
+    #define SPINDLE_PWM_MAX_VALUE     255 // Don't change. 328p fast PWM mode fixes top value as 255.
+    #ifndef SPINDLE_PWM_MIN_VALUE
+      #define SPINDLE_PWM_MIN_VALUE   1   // Must be greater than zero.
+    #endif
+    #define SPINDLE_PWM_OFF_VALUE     0
+    #define SPINDLE_PWM_RANGE         (SPINDLE_PWM_MAX_VALUE-SPINDLE_PWM_MIN_VALUE)
+    #define SPINDLE_TCCRA_REGISTER
+    #define SPINDLE_TCCRB_REGISTER
+    #define SPINDLE_OCR_REGISTER
+    #define SPINDLE_COMB_BIT
+
+    // Prescaled, 8-bit Fast PWM mode.
+    #define SPINDLE_TCCRA_INIT_MASK     // Configures fast PWM mode.
+    // #define SPINDLE_TCCRB_INIT_MASK   (1<<CS20)               // Disable prescaler -> 62.5kHz
+    // #define SPINDLE_TCCRB_INIT_MASK   (1<<CS21)               // 1/8 prescaler -> 7.8kHz (Used in v0.9)
+    // #define SPINDLE_TCCRB_INIT_MASK   ((1<<CS21) | (1<<CS20)) // 1/32 prescaler -> 1.96kHz
+    #define SPINDLE_TCCRB_INIT_MASK                     // 1/64 prescaler -> 0.98kHz (J-tech laser)
+
+    // NOTE: On the 328p, these must be the same as the SPINDLE_ENABLE settings.
+    #define SPINDLE_PWM_DDR
+    #define SPINDLE_PWM_PORT
+    #define SPINDLE_PWM_BIT   // Uno Digital Pin 11
+  #endif // ENABLE_DUAL_AXIS
 
 #endif // CPU_MAP_STM32F7XX
 

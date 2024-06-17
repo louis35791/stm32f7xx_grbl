@@ -23,6 +23,7 @@
 
 void system_init()
 {
+#if defined(AVR_ARCH)
   CONTROL_DDR &= ~(CONTROL_MASK); // Configure as input pins
   #ifdef DISABLE_CONTROL_PIN_PULL_UP
     CONTROL_PORT &= ~(CONTROL_MASK); // Normal low operation. Requires external pull-down.
@@ -31,6 +32,19 @@ void system_init()
   #endif
   CONTROL_PCMSK |= CONTROL_MASK;  // Enable specific pins of the Pin Change Interrupt
   PCICR |= (1 << CONTROL_INT);   // Enable Pin Change Interrupt
+#elif defined(STM32F7XX_ARCH)
+  // Configure control pins as input pins
+  GPIO_InitTypeDef GPIO_InitStruct;
+  GPIO_InitStruct.Pin = CONTROL_MASK;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+#ifdef DISABLE_CONTROL_PIN_PULL_UP
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+#else
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+#endif // DISABLE_CONTROL_PIN_PULL_UP
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(CONTROL_GPIO_GROUP, &GPIO_InitStruct);
+#endif // AVR_ARCH
 }
 
 
@@ -40,7 +54,7 @@ void system_init()
 uint8_t system_control_get_state()
 {
   uint8_t control_state = 0;
-  uint8_t pin = (CONTROL_PIN & CONTROL_MASK) ^ CONTROL_MASK;
+  IO_TYPE pin = (CONTROL_PIN & CONTROL_MASK) ^ CONTROL_MASK;
   #ifdef INVERT_CONTROL_PIN_MASK
     pin ^= INVERT_CONTROL_PIN_MASK;
   #endif
@@ -61,7 +75,11 @@ uint8_t system_control_get_state()
 // only the realtime command execute variable to have the main program execute these when
 // its ready. This works exactly like the character-based realtime commands when picked off
 // directly from the incoming serial data stream.
-ISR(CONTROL_INT_vect)
+#if defined(AVR_ARCH)
+  ISR(CONTROL_INT_vect)
+#elif defined(STM32F7XX_ARCH)
+  void system_control_pin_irq(uint16_t GPIO_Pin)
+#endif
 {
   uint8_t pin = system_control_get_state();
   if (pin) {
@@ -354,57 +372,105 @@ uint8_t system_check_travel_limits(float *target)
 
 // Special handlers for setting and clearing Grbl's real-time execution flags.
 void system_set_exec_state_flag(uint8_t mask) {
+#if defined(AVR_ARCH)
   uint8_t sreg = SREG;
   cli();
   sys_rt_exec_state |= (mask);
   SREG = sreg;
+#elif defined(STM32F7XX_ARCH)
+  __disable_irq();
+  sys_rt_exec_state |= (mask);
+  __enable_irq();
+#endif
 }
 
 void system_clear_exec_state_flag(uint8_t mask) {
+#if defined(AVR_ARCH)
   uint8_t sreg = SREG;
   cli();
   sys_rt_exec_state &= ~(mask);
   SREG = sreg;
+#elif defined(STM32F7XX_ARCH)
+  __disable_irq();
+  sys_rt_exec_state &= ~(mask);
+  __enable_irq();
+#endif
 }
 
 void system_set_exec_alarm(uint8_t code) {
+#if defined(AVR_ARCH)
   uint8_t sreg = SREG;
   cli();
   sys_rt_exec_alarm = code;
   SREG = sreg;
+#elif defined(STM32F7XX_ARCH)
+  __disable_irq();
+  sys_rt_exec_alarm = code;
+  __enable_irq();
+#endif
 }
 
 void system_clear_exec_alarm() {
+#if defined(AVR_ARCH)
   uint8_t sreg = SREG;
   cli();
   sys_rt_exec_alarm = 0;
   SREG = sreg;
+#elif defined(STM32F7XX_ARCH)
+  __disable_irq();
+  sys_rt_exec_alarm = 0;
+  __enable_irq();
+#endif
 }
 
 void system_set_exec_motion_override_flag(uint8_t mask) {
+#if defined(AVR_ARCH)
   uint8_t sreg = SREG;
   cli();
   sys_rt_exec_motion_override |= (mask);
   SREG = sreg;
+#elif defined(STM32F7XX_ARCH)
+  __disable_irq();
+  sys_rt_exec_motion_override |= (mask);
+  __enable_irq();
+#endif
 }
 
 void system_set_exec_accessory_override_flag(uint8_t mask) {
+#if defined(AVR_ARCH)
   uint8_t sreg = SREG;
   cli();
   sys_rt_exec_accessory_override |= (mask);
   SREG = sreg;
+#elif defined(STM32F7XX_ARCH)
+  __disable_irq();
+  sys_rt_exec_accessory_override |= (mask);
+  __enable_irq();
+#endif
 }
 
 void system_clear_exec_motion_overrides() {
+#if defined(AVR_ARCH)
   uint8_t sreg = SREG;
   cli();
   sys_rt_exec_motion_override = 0;
   SREG = sreg;
+#elif defined(STM32F7XX_ARCH)
+  __disable_irq();
+  sys_rt_exec_motion_override = 0;
+  __enable_irq();
+#endif
 }
 
 void system_clear_exec_accessory_overrides() {
+#if defined(AVR_ARCH)
   uint8_t sreg = SREG;
   cli();
   sys_rt_exec_accessory_override = 0;
   SREG = sreg;
+#elif defined(STM32F7XX_ARCH)
+  __disable_irq();
+  sys_rt_exec_accessory_override = 0;
+  __enable_irq();
+#endif
 }
