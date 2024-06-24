@@ -36,9 +36,18 @@ volatile uint8_t sys_rt_exec_accessory_override; // Global realtime executor bit
 #endif
 
 
-int main(void)
+#if defined(AVR_ARCH)
+  int main(void)
+#elif defined(STM32F7XX_ARCH)
+  void mainGRBL(void *pvParameters)
+#endif
 {
   // Initialize system upon power-up.
+#ifdef STM32F7XX_ARCH
+  // Initialize the flash memory
+  flashInit();
+#endif // STM32F7XX_ARCH
+
   serial_init();   // Setup serial baud rate and interrupts
   settings_init(); // Load Grbl settings from EEPROM
   stepper_init();  // Configure stepper pins and interrupt timers
@@ -108,5 +117,8 @@ int main(void)
     protocol_main_loop();
 
   }
+
+#if defined(AVR_ARCH)
   return 0;   /* Never reached */
+#endif
 }

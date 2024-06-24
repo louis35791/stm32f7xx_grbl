@@ -8,6 +8,7 @@ void utilsStartUsTimer(TIM_HandleTypeDef *htim)
     htimUs = htim;
     HAL_TIM_Base_Start(htimUs);
 }
+
 void utilsDelayUs(uint16_t us)
 {
     __HAL_TIM_SET_COUNTER(htimUs, 0);

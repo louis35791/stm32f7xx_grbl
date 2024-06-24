@@ -64,13 +64,14 @@
 #include "system.h"
 #include "defaults.h"
 #include "cpu_map.h"
+
+#ifdef STM32F7XX_ARCH
+  #include "step.h"
+#endif // STM32F7XX_ARCH
+
 #include "planner.h"
 #include "coolant_control.h"
-
-#ifdef AVR_ARCH
-  #include "eeprom.h"
-#endif // AVR_ARCH
-
+#include "eeprom.h"
 #include "gcode.h"
 #include "limits.h"
 #include "motion_control.h"
@@ -83,6 +84,10 @@
 #include "spindle_control.h"
 #include "stepper.h"
 #include "jog.h"
+
+#ifdef STM32F7XX_ARCH
+  void mainGRBL(void *pvParameters);
+#endif // STM32F7XX_ARCH
 
 // ---------------------------------------------------------------------------------------
 // COMPILE-TIME ERROR CHECKING OF DEFINE VALUES:

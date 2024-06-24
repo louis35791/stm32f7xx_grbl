@@ -5,6 +5,7 @@
 /**
  * Define Function Prototypes
  */
+void utilsStartUsTimer(TIM_HandleTypeDef *htim);
 void utilsDelayUs(uint16_t us);
 
 #endif // __UTILS_H

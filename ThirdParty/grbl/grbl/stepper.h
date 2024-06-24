@@ -56,4 +56,8 @@ void st_update_plan_block_parameters();
 // Called by realtime status reporting if realtime rate reporting is enabled in config.h.
 float st_get_realtime_rate();
 
+#if defined(STM32F7XX_ARCH)
+  void stepper_pulse_generation_isr();
+#endif // STM32F7XX_ARCH
+
 #endif

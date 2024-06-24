@@ -23,7 +23,13 @@
 
 unsigned char eeprom_get_char(unsigned int addr);
 void eeprom_put_char(unsigned int addr, unsigned char new_value);
-void memcpy_to_eeprom_with_checksum(unsigned int destination, char *source, unsigned int size);
+
+#if defined(AVR_ARCH)
+  void memcpy_to_eeprom_with_checksum(unsigned int destination, char *source, unsigned int size);
+#elif defined(STM32F7XX_ARCH)
+  #define memcpy_to_eeprom_with_checksum(dest, source, size)  flashMemcpyToEepromWithChecksum(dest, source, size);
+#endif  // AVR_ARCH
+
 int memcpy_from_eeprom_with_checksum(char *destination, unsigned int source, unsigned int size);
 
 #endif

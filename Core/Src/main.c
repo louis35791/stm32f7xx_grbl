@@ -26,9 +26,7 @@
 #include "stm32f7xx_grbl.h"
 #include "ethernet_if.h"
 #include "encoder.h"
-#include "cpu_map.h"
-#include "limits.h"
-#include "system.h"
+#include "grbl.h"
 
 /* USER CODE END Includes */
 
@@ -124,14 +122,17 @@ int main(void)
   // start Timer 7
   HAL_TIM_Base_Start_IT(&htim7);
 
-  // stert Timer 1 in encoder mode
+  // start Timer 1 in encoder mode
   HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
+
+  // start microsecond timer
+  utilsStartUsTimer(&htim14);
 
   // init TCP
   tcp_server_init();
 
-  // initialize step function
-  stepInit();
+  // create grbl task
+  xTaskCreate(mainGRBL, "grblTask", configMINIMAL_STACK_SIZE * 4, NULL, tskIDLE_PRIORITY, NULL);
 
   // start scheduler
   vTaskStartScheduler();

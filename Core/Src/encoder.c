@@ -21,8 +21,6 @@ volatile float speedRPM = 0;              // store speed in RPM
 
 void encoderTask(void *pvParameters)
 {
-    // degree value
-    int32_t degree = 0;
 
     // Infinite loop
     for (;;)

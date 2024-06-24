@@ -21,6 +21,8 @@
 *                         $Revision: 1.6 $
 *                         $Date: Friday, February 11, 2005 07:16:44 UTC $
 ****************************************************************************/
+#include "grbl.h"
+
 #ifdef AVR_ARCH
 	#include <avr/io.h>
 	#include <avr/interrupt.h>
@@ -38,6 +40,7 @@
 /* Define to reduce code size. */
 #define EEPROM_IGNORE_SELFPROG //!< Remove SPM flag polling.
 #endif // AVR_ARCH
+
 
 /*! \brief  Read byte from EEPROM.
  *
@@ -137,6 +140,7 @@ void eeprom_put_char( unsigned int addr, unsigned char new_value )
 // Extensions added as part of Grbl 
 
 
+#ifdef AVR_ARCH
 void memcpy_to_eeprom_with_checksum(unsigned int destination, char *source, unsigned int size) {
   unsigned char checksum = 0;
   for(; size > 0; size--) { 
@@ -148,6 +152,7 @@ void memcpy_to_eeprom_with_checksum(unsigned int destination, char *source, unsi
   }
   eeprom_put_char(destination, checksum);
 }
+#endif // AVR_ARCH
 
 int memcpy_from_eeprom_with_checksum(char *destination, unsigned int source, unsigned int size) {
   unsigned char data, checksum = 0;

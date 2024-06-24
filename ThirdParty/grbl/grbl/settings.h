@@ -24,7 +24,6 @@
 
 #include "grbl.h"
 
-
 // Version of the EEPROM data. Will be used to migrate existing data from older versions of Grbl
 // when firmware is upgraded. Always stored in byte 0 of eeprom
 #define SETTINGS_VERSION 10  // NOTE: Check settings_reset() when moving to next version.
@@ -68,13 +67,23 @@
 #if defined(AVR_ARCH)
   #define FLASH_BASE_ADDR 0x00U
 #elif defined(STM32F7XX_ARCH)
-  #define FLASH_BASE_ADDR 0x081FFC00UL
+  #define FLASH_SECTOR_NUM_1  FLASH_SECTOR_10  // Sector 10, 256KB
+  #define FLASH_BASE_ADDR_1 0x08180000UL  // the beginning address of a sector whose size is 256KB
+  #define FLASH_SECTOR_NUM_2  FLASH_SECTOR_11  // Sector 11, 256KB
+  #define FLASH_BASE_ADDR_2 0x081C0000UL  // the beginning address of a sector whose size is 256KB
+  #define FLASH_BASE_ADDR currentFlashSectorAddress
 #endif // STM32F7XX_ARCH
 
-#define EEPROM_ADDR_GLOBAL         (FLASH_BASE_ADDR) + 1U
-#define EEPROM_ADDR_PARAMETERS     (FLASH_BASE_ADDR) + 512U
-#define EEPROM_ADDR_STARTUP_BLOCK  (FLASH_BASE_ADDR) + 768U
-#define EEPROM_ADDR_BUILD_INFO     (FLASH_BASE_ADDR) + 942U
+#define EEPROM_ADDR_VERSION_OFFSET        0U
+#define EEPROM_ADDR_GLOBAL_OFFSET         1U
+#define EEPROM_ADDR_PARAMETERS_OFFSET     512U
+#define EEPROM_ADDR_STARTUP_BLOCK_OFFSET  768U
+#define EEPROM_ADDR_BUILD_INFO_OFFSET     942U
+#define EEPROM_ADDR_VERSION        (FLASH_BASE_ADDR) + (EEPROM_ADDR_VERSION_OFFSET)
+#define EEPROM_ADDR_GLOBAL         (FLASH_BASE_ADDR) + (EEPROM_ADDR_GLOBAL_OFFSET)
+#define EEPROM_ADDR_PARAMETERS     (FLASH_BASE_ADDR) + (EEPROM_ADDR_PARAMETERS_OFFSET)
+#define EEPROM_ADDR_STARTUP_BLOCK  (FLASH_BASE_ADDR) + (EEPROM_ADDR_STARTUP_BLOCK_OFFSET)
+#define EEPROM_ADDR_BUILD_INFO     (FLASH_BASE_ADDR) + (EEPROM_ADDR_BUILD_INFO_OFFSET)
 
 // Define EEPROM address indexing for coordinate parameters
 #define N_COORDINATE_SYSTEM 6  // Number of supported work coordinate systems (from index 1)

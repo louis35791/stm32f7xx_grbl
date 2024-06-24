@@ -21,7 +21,6 @@
 
 #include "grbl.h"
 
-
 // Some useful constants.
 #define DT_SEGMENT (1.0/(ACCELERATION_TICKS_PER_SECOND*60.0)) // min/segment
 #define REQ_MM_INCREMENT_SCALAR 1.25
@@ -66,7 +65,7 @@
 typedef struct {
   uint32_t steps[N_AXIS];
   uint32_t step_event_count;
-  uint8_t direction_bits;
+  IO_TYPE direction_bits;
   #ifdef ENABLE_DUAL_AXIS
     uint8_t direction_bits_dual;
   #endif
@@ -107,8 +106,8 @@ typedef struct {
 
   uint8_t execute_step;     // Flags step execution for each interrupt.
   uint8_t step_pulse_time;  // Step pulse reset time after step rise
-  uint8_t step_outbits;         // The next stepping-bits to be output
-  uint8_t dir_outbits;
+  IO_TYPE step_outbits;         // The next stepping-bits to be output
+  IO_TYPE dir_outbits;
   #ifdef ENABLE_DUAL_AXIS
     uint8_t step_outbits_dual;
     uint8_t dir_outbits_dual;
@@ -130,8 +129,8 @@ static uint8_t segment_buffer_head;
 static uint8_t segment_next_head;
 
 // Step and direction port invert masks.
-static uint8_t step_port_invert_mask;
-static uint8_t dir_port_invert_mask;
+static IO_TYPE step_port_invert_mask;
+static IO_TYPE dir_port_invert_mask;
 #ifdef ENABLE_DUAL_AXIS
   static uint8_t step_port_invert_mask_dual;
   static uint8_t dir_port_invert_mask_dual;
@@ -238,20 +237,31 @@ void st_wake_up()
     OCR0A = -(((settings.pulse_microseconds)*TICKS_PER_MICROSECOND) >> 3);
   #else // Normal operation
     // Set step pulse time. Ad hoc computation from oscilloscope. Uses two's complement.
-    st.step_pulse_time = -(((settings.pulse_microseconds-2)*TICKS_PER_MICROSECOND) >> 3);
+    #if defined(AVR_ARCH)
+      st.step_pulse_time = -(((settings.pulse_microseconds-2)*TICKS_PER_MICROSECOND) >> 3);
+    #elif defined(STM32F7XX_ARCH)
+      st.step_pulse_time = ((settings.pulse_microseconds-2)*TICKS_PER_MICROSECOND);
+    #endif
   #endif
 
   // Enable Stepper Driver Interrupt
+#if defined(AVR_ARCH)
   TIMSK1 |= (1<<OCIE1A);
+#elif defined(STM32F7XX_ARCH)
+  stepWakeUp();
+#endif // AVR_ARCH
 }
 
 
 // Stepper shutdown
 void st_go_idle()
 {
+#if defined(AVR_ARCH)
   // Disable Stepper Driver Interrupt. Allow Stepper Port Reset Interrupt to finish, if active.
   TIMSK1 &= ~(1<<OCIE1A); // Disable Timer1 interrupt
   TCCR1B = (TCCR1B & ~((1<<CS12) | (1<<CS11))) | (1<<CS10); // Reset clock to no prescaling.
+#endif // AVR_ARCH
+
   busy = false;
 
   // Set stepper driver idle state, disabled or enabled, depending on settings and circumstances.
@@ -259,9 +269,21 @@ void st_go_idle()
   if (((settings.stepper_idle_lock_time != 0xff) || sys_rt_exec_alarm || sys.state == STATE_SLEEP) && sys.state != STATE_HOMING) {
     // Force stepper dwell to lock axes for a defined amount of time to ensure the axes come to a complete
     // stop and not drift from residual inertial forces at the end of the last movement.
+  #ifdef STM32F7XX_ARCH
+    stepGoIdle();
+  #endif // STM32F7XX_ARCH
     delay_ms(settings.stepper_idle_lock_time);
     pin_state = true; // Override. Disable steppers.
   }
+#ifdef STM32F7XX_ARCH
+  else
+  {
+    // inform the step agent in step.c
+    // that there is no more step to generate.
+    stepDisablePulseCalculate();
+  }
+#endif // STM32F7XX_ARCH
+
   if (bit_istrue(settings.flags,BITFLAG_INVERT_ST_ENABLE)) { pin_state = !pin_state; } // Apply pin invert.
   if (pin_state) { STEPPERS_DISABLE_PORT |= (1<<STEPPERS_DISABLE_BIT); }
   else { STEPPERS_DISABLE_PORT &= ~(1<<STEPPERS_DISABLE_BIT); }
@@ -316,10 +338,15 @@ void st_go_idle()
 // TODO: Replace direct updating of the int32 position counters in the ISR somehow. Perhaps use smaller
 // int8 variables and update position counters only when a segment completes. This can get complicated
 // with probing and homing cycles that require true real-time positions.
-ISR(TIMER1_COMPA_vect)
+#if defined(AVR_ARCH)
+  ISR(TIMER1_COMPA_vect)
+#elif defined(STM32F7XX_ARCH)
+  void stepper_pulse_generation_isr()
+#endif
 {
   if (busy) { return; } // The busy-flag is used to avoid reentering this interrupt
 
+#if defined(AVR_ARCH)
   // Set the direction pins a couple of nanoseconds before we step the steppers
   DIRECTION_PORT = (DIRECTION_PORT & ~DIRECTION_MASK) | (st.dir_outbits & DIRECTION_MASK);
   #ifdef ENABLE_DUAL_AXIS
@@ -343,10 +370,19 @@ ISR(TIMER1_COMPA_vect)
   // exactly settings.pulse_microseconds microseconds, independent of the main Timer1 prescaler.
   TCNT0 = st.step_pulse_time; // Reload Timer0 counter
   TCCR0B = (1<<CS01); // Begin Timer0. Full speed, 1/8 prescaler
+#elif defined(STM32F7XX_ARCH)
+  if (stepCalculatePulseData((uint32_t*)(&st)) != HAL_OK)
+  {
+    return;
+  }
+#endif // AVR_ARCH
 
   busy = true;
+
+#if defined(AVR_ARCH)
   sei(); // Re-enable interrupts to allow Stepper Port Reset Interrupt to fire on-time.
          // NOTE: The remaining code in this ISR will finish before returning to main program.
+#endif // AVR_ARCH
 
   // If there is no step segment, attempt to pop one from the stepper buffer
   if (st.exec_segment == NULL) {
@@ -360,8 +396,11 @@ ISR(TIMER1_COMPA_vect)
         TCCR1B = (TCCR1B & ~(0x07<<CS10)) | (st.exec_segment->prescaler<<CS10);
       #endif
 
-      // Initialize step segment timing per step and load number of steps to execute.
-      OCR1A = st.exec_segment->cycles_per_tick;
+      #if defined(AVR_ARCH)
+        // Initialize step segment timing per step and load number of steps to execute.
+        OCR1A = st.exec_segment->cycles_per_tick;
+      #endif // AVR_ARCH
+
       st.step_count = st.exec_segment->n_step; // NOTE: Can sometimes be zero when moving slow.
       // If the new segment starts a new planner block, initialize stepper variables and counters.
       // NOTE: When the segment data index changes, this indicates a new planner block.
@@ -392,6 +431,7 @@ ISR(TIMER1_COMPA_vect)
     } else {
       // Segment buffer empty. Shutdown.
       st_go_idle();
+
       #ifdef VARIABLE_SPINDLE
         // Ensure pwm is set properly upon completion of rate-controlled motion.
         if (st.exec_block->is_pwm_rate_adjusted) { spindle_set_speed(SPINDLE_PWM_OFF_VALUE); }
@@ -486,15 +526,18 @@ ISR(TIMER1_COMPA_vect)
 // This interrupt is enabled by ISR_TIMER1_COMPAREA when it sets the motor port bits to execute
 // a step. This ISR resets the motor port after a short period (settings.pulse_microseconds)
 // completing one step cycle.
-ISR(TIMER0_OVF_vect)
-{
-  // Reset stepping pins (leave the direction pins)
-  STEP_PORT = (STEP_PORT & ~STEP_MASK) | (step_port_invert_mask & STEP_MASK);
-  #ifdef ENABLE_DUAL_AXIS
-    STEP_PORT_DUAL = (STEP_PORT_DUAL & ~STEP_MASK_DUAL) | (step_port_invert_mask_dual & STEP_MASK_DUAL);
-  #endif
-  TCCR0B = 0; // Disable Timer0 to prevent re-entering this interrupt when it's not needed.
-}
+#ifdef AVR_ARCH
+  ISR(TIMER0_OVF_vect)
+  {
+    // Reset stepping pins (leave the direction pins)
+    STEP_PORT = (STEP_PORT & ~STEP_MASK) | (step_port_invert_mask & STEP_MASK);
+    #ifdef ENABLE_DUAL_AXIS
+      STEP_PORT_DUAL = (STEP_PORT_DUAL & ~STEP_MASK_DUAL) | (step_port_invert_mask_dual & STEP_MASK_DUAL);
+    #endif
+    TCCR0B = 0; // Disable Timer0 to prevent re-entering this interrupt when it's not needed.
+  }
+#endif // AVR_ARCH
+
 #ifdef STEP_PULSE_DELAY
   // This interrupt is used only when STEP_PULSE_DELAY is enabled. Here, the step pulse is
   // initiated after the STEP_PULSE_DELAY time period has elapsed. The ISR TIMER2_OVF interrupt
@@ -550,9 +593,14 @@ void st_reset()
   st_generate_step_dir_invert_masks();
   st.dir_outbits = dir_port_invert_mask; // Initialize direction bits to default.
 
+#if defined(AVR_ARCH)
   // Initialize step and direction port pins.
   STEP_PORT = (STEP_PORT & ~STEP_MASK) | step_port_invert_mask;
   DIRECTION_PORT = (DIRECTION_PORT & ~DIRECTION_MASK) | dir_port_invert_mask;
+#elif defined(STM32F7XX_ARCH)
+  // Initialize variables for the step agent
+  stepInit();
+#endif // AVR_ARCH
   
   #ifdef ENABLE_DUAL_AXIS
     st.dir_outbits_dual = dir_port_invert_mask_dual;
@@ -565,6 +613,7 @@ void st_reset()
 // Initialize and start the stepper motor subsystem
 void stepper_init()
 {
+#if defined(AVR_ARCH)
   // Configure step and direction interface pins
   STEP_DDR |= STEP_MASK;
   STEPPERS_DISABLE_DDR |= 1<<STEPPERS_DISABLE_BIT;
@@ -591,7 +640,14 @@ void stepper_init()
   #ifdef STEP_PULSE_DELAY
     TIMSK0 |= (1<<OCIE0A); // Enable Timer0 Compare Match A interrupt
   #endif
+#elif defined(STM32F7XX_ARCH)
+#endif // AVR_ARCH
+
 }
+
+/* ==================================================================================== */
+/*                              STEPPER ALGORITHM INTERFACE                             */
+/* ==================================================================================== */
 
 
 // Called by planner_recalculate() when the executing block is updated by the new plan.
@@ -1013,7 +1069,7 @@ void st_prep_buffer()
     float inv_rate = dt/(last_n_steps_remaining - step_dist_remaining); // Compute adjusted step rate inverse
 
     // Compute CPU cycles per step for the prepped segment.
-    uint32_t cycles = ceil( (TICKS_PER_MICROSECOND*1000000*60)*inv_rate ); // (cycles/step)
+    uint32_t cycles = ceil( ((uint32_t)TICKS_PER_MICROSECOND*1000000*60)*inv_rate ); // (cycles/step)
 
     #ifdef ADAPTIVE_MULTI_AXIS_STEP_SMOOTHING
       // Compute step timing and multi-axis smoothing level.

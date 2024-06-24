@@ -23,6 +23,8 @@
 
 #if defined(STM32F7XX_ARCH)
   #define __flash
+
+  volatile uint32_t currentFlashSectorAddress = 0;
 #endif // STM32F7XX_ARCH
 
 settings_t settings;
@@ -99,7 +101,11 @@ void settings_write_coord_data(uint8_t coord_select, float *coord_data)
 // NOTE: This function can only be called in IDLE state.
 void write_global_settings()
 {
-  eeprom_put_char(0, SETTINGS_VERSION);
+#if defined(AVR_ARCH)
+  eeprom_put_char(EEPROM_ADDR_VERSION, SETTINGS_VERSION);
+#elif defined(STM32F7XX_ARCH)
+  flashWriteVersion(SETTINGS_VERSION);
+#endif // AVR_ARCH
   memcpy_to_eeprom_with_checksum(EEPROM_ADDR_GLOBAL, (char*)&settings, sizeof(settings_t));
 }
 
@@ -180,7 +186,7 @@ uint8_t settings_read_coord_data(uint8_t coord_select, float *coord_data)
 // Reads Grbl global settings struct from EEPROM.
 uint8_t read_global_settings() {
   // Check version-byte of eeprom
-  uint8_t version = eeprom_get_char(0);
+  uint8_t version = eeprom_get_char(EEPROM_ADDR_VERSION);
   if (version == SETTINGS_VERSION) {
     // Read settings-record and check checksum
     if (!(memcpy_from_eeprom_with_checksum((char*)&settings, EEPROM_ADDR_GLOBAL, sizeof(settings_t)))) {

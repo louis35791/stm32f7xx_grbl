@@ -1,5 +1,7 @@
 #include "stm32f7xx_gpio_ex.h"
 
+#define GPIO_NUMBER           ((uint32_t)16U)
+
 void GPIO_DisableEXTI(GPIO_TypeDef  *GPIOx, uint32_t GPIO_Pin)
 {
   uint32_t position;

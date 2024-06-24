@@ -78,7 +78,7 @@ uint8_t system_control_get_state()
 #if defined(AVR_ARCH)
   ISR(CONTROL_INT_vect)
 #elif defined(STM32F7XX_ARCH)
-  void system_control_pin_irq(uint16_t GPIO_Pin)
+  void system_control_pin_isr(uint16_t GPIO_Pin)
 #endif
 {
   uint8_t pin = system_control_get_state();

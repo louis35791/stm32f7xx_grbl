@@ -37,9 +37,6 @@ BaseType_t tcp_server_init()
        below.  The hook function is called when the network connects. */
     FreeRTOS_IPInit_Multi();
 
-    // Create the serial task
-    xTaskCreate(prvSerialTask, "SerialTask", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, &serialTaskHandle);
-
     return SUCCESS;
 }
 
@@ -115,7 +112,6 @@ void HAL_ETH_MspInit(ETH_HandleTypeDef *ethHandle)
     }
 }
 
-
 void vApplicationIPNetworkEventHook_Multi(eIPCallbackEvent_t eNetworkEvent,
                                           struct xNetworkEndPoint *pxEndPoint)
 {
@@ -135,7 +131,7 @@ void vApplicationIPNetworkEventHook_Multi(eIPCallbackEvent_t eNetworkEvent,
 
             xTasksAlreadyCreated = pdTRUE;
 
-            vStartSimpleTCPServerTasks(2 * configMINIMAL_STACK_SIZE, tskIDLE_PRIORITY);
+            vStartSimpleTCPServerTasks(4 * configMINIMAL_STACK_SIZE, tskIDLE_PRIORITY);
         }
     }
     /* Print out the network configuration, which may have come from a DHCP
@@ -229,8 +225,16 @@ static void prvCreateTCPServerSocketTasks(void *pvParameters)
                     "EchoServer",
                     usUsedStackSize,
                     (void *)xConnectedSocket,
-                    tskIDLE_PRIORITY,
+                    tskIDLE_PRIORITY + 1,
                     NULL);
+
+        // Create the serial task which is an interface between the serial port and the ethernet
+        xTaskCreate(prvSerialTask,
+                    "SerialTask",
+                    configMINIMAL_STACK_SIZE * 2,
+                    (void *)xConnectedSocket,
+                    tskIDLE_PRIORITY + 1,
+                    &serialTaskHandle);
     }
 }
 
@@ -239,111 +243,10 @@ void vTimeoutCallback(TimerHandle_t xTimer)
     socketShutdownTimeout = 1;
 }
 
-uint8_t isDigit(char c)
+void safelyShutdownSocket(Socket_t xSocket)
 {
-    return c >= '0' && c <= '9';
-}
-
-void prvProcessData(char *cRxedData, BaseType_t lBytesReceived, Socket_t xConnectedSocket)
-{
-    FreeRTOS_debug_printf(("Received data: %s\n", cRxedData));
-
-    if (cRxedData[0] != '$')
-        return;
-
-    BaseType_t i = 1;
-
-    for (; i < lBytesReceived; i++)
-    {
-        /**
-         * Process the received data
-         */
-        serial_rx_irq(cRxedData[i]);
-
-        switch (cRxedData[i])
-        {
-        case 'f':
-        case 'F':
-            i++;
-            // pulseFrequency = 0;
-            // while (cRxedData[i] != '\n' && i < lBytesReceived)
-            // {
-            //     if (isDigit(cRxedData[i]))
-            //     {
-            //         // cRxedData[i] is an ASCII code number
-            //         pulseFrequency = pulseFrequency * 10 + (cRxedData[i] - '0');
-            //     }
-            //     i++;
-            // }
-            // FreeRTOS_debug_printf(("Pulse frequency: %d\n", pulseFrequency));
-            // xTaskNotifyGive(xHandleUpdatePulseData);
-
-            break;
-        case 'p':
-        case 'P':
-        {
-            char str[12] = {'\0'}; // Buffer big enough for 32-bit number. 10 digits max + '\0'
-            sprintf(str, "%ld", encoderReadDegree());
-            FreeRTOS_send(xConnectedSocket, str, sizeof(str), 0);
-            break;
-        }
-        case 's':
-        case 'S':
-        {
-            char str[12] = {'\0'}; // Buffer big enough for 32-bit number. 10 digits max + '\0'
-            float speed = encoderReadRPM();
-            sprintf(str, "%.2f", speed);
-            FreeRTOS_send(xConnectedSocket, str, sizeof(str), 0);
-            vLoggingPrintf(("RPM: %s\n", str));
-            break;
-        }
-        default:
-            // Echo back the received data
-            // FreeRTOS_send(xConnectedSocket, cRxedData, lBytesReceived, 0);
-            break;
-        }
-    }
-}
-
-static void prvEchoClientRxTask(void *pvParameters)
-{
-    FreeRTOS_debug_printf(("Client connected\n"));
-
-    Socket_t xSocket;
-    static char cRxedData[BUFFER_SIZE];
-    BaseType_t lBytesReceived;
-
-    /* It is assumed the socket has already been created and connected before
-    being passed into this RTOS task using the RTOS task's parameter. */
-    xSocket = (Socket_t)pvParameters;
-
-    for (;;)
-    {
-        /* Receive another block of data into the cRxedData buffer. */
-        lBytesReceived = FreeRTOS_recv(xSocket, &cRxedData, BUFFER_SIZE, 0);
-
-        if (lBytesReceived > 0)
-        {
-            /* Data was received, process it here. */
-            prvProcessData(cRxedData, lBytesReceived, xSocket);
-        }
-        else if (lBytesReceived == 0)
-        {
-            /* No data was received, but FreeRTOS_recv() did not return an error.
-            Timeout? */
-        }
-        else
-        {
-            /* Error (maybe the connected socket already shut down the socket?).
-            Attempt graceful shutdown. */
-            FreeRTOS_shutdown(xSocket, FREERTOS_SHUT_RDWR);
-            break;
-        }
-    }
-
-    /* The RTOS task will get here if an error is received on a read.  Ensure the
-    socket has shut down (indicated by FreeRTOS_recv() returning a -pdFREERTOS_ERRNO_EINVAL
-    error before closing the socket). */
+    // shutdown the socket
+    FreeRTOS_shutdown(xSocket, FREERTOS_SHUT_RDWR);
 
     // Start a timeout watchdog to avoid blocking the task indefinitely
     socketShutdownTimeout = 0;
@@ -379,6 +282,71 @@ static void prvEchoClientRxTask(void *pvParameters)
 
     /* Shutdown is complete and the socket can be safely closed. */
     FreeRTOS_closesocket(xSocket);
+}
+
+uint8_t isDigit(char c)
+{
+    return c >= '0' && c <= '9';
+}
+
+void prvProcessData(char *cRxedData, BaseType_t lBytesReceived, Socket_t xConnectedSocket)
+{
+    FreeRTOS_debug_printf(("Received data: %s\n", cRxedData));
+
+    // if (cRxedData[0] != '$')
+    //     return;
+
+    BaseType_t i = 0;
+
+    for (; i < lBytesReceived; i++)
+    {
+        /**
+         * Process the received data
+         */
+        serial_rx_irq(cRxedData[i]);
+    }
+}
+
+static void prvEchoClientRxTask(void *pvParameters)
+{
+    FreeRTOS_debug_printf(("Client connected\n"));
+
+    Socket_t xSocket;
+    static char cRxedData[BUFFER_SIZE];
+    BaseType_t lBytesReceived;
+
+    /* It is assumed the socket has already been created and connected before
+    being passed into this RTOS task using the RTOS task's parameter. */
+    xSocket = (Socket_t)pvParameters;
+
+    for (;;)
+    {
+        /* Receive another block of data into the cRxedData buffer. */
+        lBytesReceived = FreeRTOS_recv(xSocket, &cRxedData, BUFFER_SIZE, 0);
+
+        if (lBytesReceived > 0)
+        {
+            /* Data was received, process it here. */
+            prvProcessData(cRxedData, lBytesReceived, xSocket);
+        }
+        else if (lBytesReceived == 0)
+        {
+            /* No data was received, but FreeRTOS_recv() did not return an error.
+            Timeout? */
+        }
+        else
+        {
+            /* Error (maybe the connected socket already shut down the socket?).
+            Attempt graceful shutdown. */
+            FreeRTOS_debug_printf(("Error on receive\n"));
+            break;
+        }
+    }
+
+    /* The RTOS task will get here if an error is received on a read.  Ensure the
+    socket has shut down (indicated by FreeRTOS_recv() returning a -pdFREERTOS_ERRNO_EINVAL
+    error before closing the socket). */
+    safelyShutdownSocket(xSocket);
 
     /* Must not drop off the end of the RTOS task - delete the RTOS task. */
     vTaskDelete(NULL);
@@ -386,10 +354,14 @@ static void prvEchoClientRxTask(void *pvParameters)
 
 static void prvSerialTask(void *pvParameters)
 {
+    Socket_t xSocket = (Socket_t)pvParameters;
+    char str[64] = {'\0'};
+    uint8_t strIndex = 0;
+
     for (;;)
     {
         // Wait for a notification from serial task in serial.c of grbl
-        ulTaskNotifyTake(pdFALSE, portMAX_DELAY);   // decrement the notification count
+        ulTaskNotifyTake(pdFALSE, portMAX_DELAY); // decrement the notification count
 
         /**
          * TODO: Implement serial task
@@ -397,7 +369,46 @@ static void prvSerialTask(void *pvParameters)
          * - concatenate the data to be sent until a newline character, '\n', is received
          */
         uint8_t chr = serial_tx_irq();
+
+        // concatenate the data to be sent until a newline character, '\n', is received
+        str[strIndex] = chr;
+        strIndex++;
+
+        // Check if the character is a newline character
+        if (chr != '\n')
+        {
+            continue;
+        }
+
+        // Send the data
+        BaseType_t bytesSent = FreeRTOS_send(xSocket, str, sizeof(str), 0);
+
+        // Clear the string buffer
+        memset(str, '\0', sizeof(str));
+
+        // Reset the string index
+        strIndex = 0;
+
+        // Check if the data was sent successfully
+        if (bytesSent > 0)
+        {
+            FreeRTOS_debug_printf(("Data sent: %s\n", str));
+        }
+        else if (bytesSent < 0)
+        {
+            FreeRTOS_debug_printf(("Failed to send data\n"));
+            break;
+        }
     }
+
+    /**
+     * The RTOS task will get here if an error is received on a read.
+     * Ensure the socket has shut down before leaving the task.
+     */
+    safelyShutdownSocket(xSocket);
+
+    // delete the RTOS task
+    vTaskDelete(NULL);
 }
 
 void HAL_ETH_ErrorCallback(ETH_HandleTypeDef *heth)
