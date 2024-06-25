@@ -109,9 +109,9 @@ typedef struct
     uint8_t step_bits; // Stores out_bits output to complete the step pulse delay
 #endif
 
-    uint8_t execute_step;    // Flags step execution for each interrupt.
-    uint8_t step_pulse_time; // Step pulse reset time after step rise
-    IO_TYPE step_outbits;    // The next stepping-bits to be output
+    uint8_t execute_step;     // Flags step execution for each interrupt.
+    uint32_t step_pulse_time; // Step pulse reset time after step rise
+    IO_TYPE step_outbits;     // The next stepping-bits to be output
     IO_TYPE dir_outbits;
 #ifdef ENABLE_DUAL_AXIS
     uint8_t step_outbits_dual;
@@ -250,10 +250,6 @@ void stepTask(void *pvParameters)
         // check if it is the "First Time" to start the process
         if (generalNotification & GENERAL_NOTIFICATION_FIRST_TIME_START)
         {
-            // clear the flag
-            generalNotification &= ~GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_ALL_AXES;
-            generalNotification &= ~GENERAL_NOTIFICATION_FIRST_TIME_START;
-
             // set up each axis
             for (int8_t i = NUM_DIMENSIONS - 1; i >= 0; i--)
             {
@@ -302,6 +298,10 @@ void stepTask(void *pvParameters)
 
             // enable the master timer
             __HAL_TIM_ENABLE(&MASTER_TIM_HANDLE);
+
+            // clear the flag
+            generalNotification &= ~GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_ALL_AXES;
+            generalNotification &= ~GENERAL_NOTIFICATION_FIRST_TIME_START;
         }
         // NOT the "First Time" to start the process, but out of data asking from the timer interrupt
         else
@@ -341,6 +341,7 @@ void stepTask(void *pvParameters)
             // set PD5 to low ===> signal the end of resuming DMA stream
             HAL_GPIO_WritePin(GPIOD, GPIO_PIN_5, GPIO_PIN_RESET);
         }
+
     }
 }
 
@@ -362,6 +363,7 @@ HAL_StatusTypeDef stepCalculatePulseData(uint32_t *st_addr)
         TIM_DMA_Parameters_t *timDMAParamsPulse = &axisTimerDMAParams[i];
         uint8_t step_bit = timDMAParamsPulse->Step_Bit;
         uint8_t dir_bit = timDMAParamsPulse->Dir_Bit;
+        static uint8_t privateMotionState = 0; // a private motion state tracker for each axis
 
         // determine if a new buffer is needed
         if (getNewBuffer & (1 << i) || (dirOutputBits != st->dir_outbits))
@@ -384,6 +386,7 @@ HAL_StatusTypeDef stepCalculatePulseData(uint32_t *st_addr)
 
             // reset motion control state
             pulse[i]->motion_control_state = 0;
+            privateMotionState = 0;
 
             // set direction state
             pulse[i]->dir_outbit = st->dir_outbits & (1 << dir_bit);
@@ -402,7 +405,7 @@ HAL_StatusTypeDef stepCalculatePulseData(uint32_t *st_addr)
         if (st->step_outbits & (1 << step_bit))
         {
             // set this axis to ACTIVE state
-            pulse[i]->motion_control_state |= (1 << i);
+            privateMotionState |= (1 << i);
 
             // add pulse data
             // add ON state pulse data
@@ -420,13 +423,16 @@ HAL_StatusTypeDef stepCalculatePulseData(uint32_t *st_addr)
                 getNewBuffer |= (1 << i);
             }
         }
+
+        // update motion control state for this axis
+        pulse[i]->motion_control_state = privateMotionState;
     }
 
     // update variables
     currentCounterValue += st->exec_segment->cycles_per_tick;
 
     // check if any buffer is full of data
-    if (getNewBuffer > 0)
+    if (getNewBuffer)
     {
         // atomic operation
         __disable_irq();
@@ -491,13 +497,22 @@ void stepUpdateDMABuffer(TIM_HandleTypeDef *htim, uint32_t address, axis_t axis)
     // and the corresponding bit is set to 1 in upcomingAxesActiveState.
     // make these axes which shall be re-enabled from idle
     uint8_t axisToBeReEnabled = (currentStepperState ^ upcomingAxesActiveState) & upcomingAxesActiveState;
-    if (axisToBeReEnabled)
+
+    // manual update those axes that shall be re-enabled from idle and will stay in idle state in the upcoming cycle
+    // to avoid update the same axis twice,
+    if (DMAUpdatedAxes != ((1 << NUM_DIMENSIONS) - 1))
     {
         // loop through all axes
         for (uint8_t i = 0; i < NUM_DIMENSIONS; i++)
         {
+            // check if this axis has been updated
+            if (DMAUpdatedAxes & (1 << i))
+            {
+                // skip this axis
+                continue;
+            }
             // check if this axis shall be re-enabled from idle
-            if (axisToBeReEnabled & (1 << i))
+            else if (axisToBeReEnabled & (1 << i))
             {
                 // set the axis to active
                 currentStepperState |= (1 << i);
@@ -519,9 +534,6 @@ void stepUpdateDMABuffer(TIM_HandleTypeDef *htim, uint32_t address, axis_t axis)
                     // generate compare event to trigger the DMA transfer
                     HAL_TIM_GenerateEvent(axisTimerDMAParams[i].htim, axisTimerDMAParams[i].CompareEventID);
 
-                    // set this axis that its DMA buffer has been updated
-                    DMAUpdatedAxes |= (1 << i);
-
                     // force output turned into toggle mode
                     FORCE_OC_OUTPUT_TOGGLE(axisTimerDMAParams[i].htim, axisTimerDMAParams[i].htim->Channel);
                 }
@@ -530,6 +542,18 @@ void stepUpdateDMABuffer(TIM_HandleTypeDef *htim, uint32_t address, axis_t axis)
                     // should not reach here, because the 3-axis data is calculated simultaneously
                     Error_Handler();
                 }
+
+                // set this axis that its DMA buffer has been updated
+                DMAUpdatedAxes |= (1 << i);
+            }
+            else if (!(currentStepperState & (1 << i)))
+            {
+                // still in idle state
+                // take the data out of the ring buffer to let the head be able to move forward
+                stepGetAvailableDataAddress(i);
+
+                // set this axis that its DMA buffer has been updated
+                DMAUpdatedAxes |= (1 << i);
             }
         }
     }
@@ -731,8 +755,11 @@ void stepWakeUp()
         // clear Force stop flag
         generalNotification &= ~GENERAL_NOTIFICATION_FORCE_STOP;
 
-        // start counter
-        TIM_START_COUNTER(MASTER_TIM_HANDLE); // timer x axis
+        if (!(generalNotification & GENERAL_NOTIFICATION_FIRST_TIME_START))
+        {
+            // start counter
+            TIM_START_COUNTER(MASTER_TIM_HANDLE); // timer x axis
+        }
     }
 
     // start pulse calculation

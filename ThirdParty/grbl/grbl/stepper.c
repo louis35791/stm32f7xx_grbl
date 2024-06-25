@@ -105,7 +105,11 @@ typedef struct {
   #endif
 
   uint8_t execute_step;     // Flags step execution for each interrupt.
-  uint8_t step_pulse_time;  // Step pulse reset time after step rise
+  #if defined(AVR_ARCH)
+    uint8_t step_pulse_time;  // Step pulse reset time after step rise
+  #elif defined(STM32F7XX_ARCH)
+    uint32_t step_pulse_time;  // Step pulse reset time after step rise
+  #endif
   IO_TYPE step_outbits;         // The next stepping-bits to be output
   IO_TYPE dir_outbits;
   #ifdef ENABLE_DUAL_AXIS
@@ -240,7 +244,7 @@ void st_wake_up()
     #if defined(AVR_ARCH)
       st.step_pulse_time = -(((settings.pulse_microseconds-2)*TICKS_PER_MICROSECOND) >> 3);
     #elif defined(STM32F7XX_ARCH)
-      st.step_pulse_time = ((settings.pulse_microseconds-2)*TICKS_PER_MICROSECOND);
+      st.step_pulse_time = (uint32_t)((settings.pulse_microseconds)*TICKS_PER_MICROSECOND);
     #endif
   #endif
 
