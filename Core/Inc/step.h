@@ -51,6 +51,9 @@
 #define X_AXIS_DIRECTION_PORT X_DIRECTION_PORT
 #define Y_AXIS_DIRECTION_PORT Y_DIRECTION_PORT
 #define Z_AXIS_DIRECTION_PORT Z_DIRECTION_PORT
+#define X_AXIS_TIM_FLAG_CCx TIM_FLAG_CC3
+#define Y_AXIS_TIM_FLAG_CCx TIM_FLAG_CC4
+#define Z_AXIS_TIM_FLAG_CCx TIM_FLAG_CC1
 
 #define STEP_EVENT_COUNT 1000
 #define STEP_X 600
@@ -65,11 +68,10 @@
 #define GENERAL_NOTIFICATION_ALL_AXES_DMA_UPDATED 0x20
 #define GENERAL_NOTIFICATION_CALCULATE_PULSE 0x40
 #define GENERAL_NOTIFICATION_FORCE_STOP 0x80
+#define GENERAL_NOTIFICATION_GET_NEW_BUFFER 0x100
 
 #define GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_ALL_AXES \
-        (GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_X_AXIS \
-        | GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_Y_AXIS \
-        | GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_Z_AXIS) \
+    (GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_X_AXIS | GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_Y_AXIS | GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_Z_AXIS)
 
 /* type define */
 
@@ -153,6 +155,7 @@ typedef struct
         (__TARGET_ARR__)[__AXIS__].CompareEventID = CONCATENATE(__AXIS__, _COMPARE_EVENT_ID);             \
         (__TARGET_ARR__)[__AXIS__].Step_Bit = CONCATENATE(__AXIS__, _STEP_BIT);                           \
         (__TARGET_ARR__)[__AXIS__].Dir_Bit = CONCATENATE(__AXIS__, _DIRECTION_BIT);                       \
+        (__TARGET_ARR__)[__AXIS__].TIM_FLAG_CCx = CONCATENATE(__AXIS__, _TIM_FLAG_CCx);                   \
     } while (0);
 
 // define ring buffer and associated variables
@@ -160,24 +163,24 @@ typedef struct
     static pulse_t __AXIS__##PulseBuffer[__BUFFER_SIZE__];
 
 // increment ring buffer head
-#define RING_BUFFER_INCREMENT_HEAD(__AXIS__, __RING_BUFFER_SIZE__)                    \
-    do                                                                                \
-    {                                                                                 \
-        uint16_t nextIndex = (ringBufferHead[__AXIS__] + 1) % (__RING_BUFFER_SIZE__); \
-        if (nextIndex != ringBufferTail[__AXIS__])                                    \
-        {                                                                             \
-            ringBufferHead[__AXIS__] = nextIndex;                                     \
-        }                                                                             \
+#define RING_BUFFER_INCREMENT_HEAD(__AXIS__, __RING_BUFFER_SIZE__)                         \
+    do                                                                                     \
+    {                                                                                      \
+        uint16_t nextIndex = (pulseRingBufferHead[__AXIS__] + 1) % (__RING_BUFFER_SIZE__); \
+        if (nextIndex != pulseRingBufferTail[__AXIS__])                                    \
+        {                                                                                  \
+            pulseRingBufferHead[__AXIS__] = nextIndex;                                     \
+        }                                                                                  \
     } while (0);
 
 // increment ring buffer tail
-#define RING_BUFFER_INCREMENT_TAIL(__AXIS__, __RING_BUFFER_SIZE__)                              \
-    do                                                                                          \
-    {                                                                                           \
-        if (ringBufferTail[__AXIS__] != ringBufferHead[__AXIS__])                               \
-        {                                                                                       \
-            ringBufferTail[__AXIS__] = (ringBufferTail[__AXIS__] + 1) % (__RING_BUFFER_SIZE__); \
-        }                                                                                       \
+#define RING_BUFFER_INCREMENT_TAIL(__AXIS__, __RING_BUFFER_SIZE__)                                        \
+    do                                                                                                    \
+    {                                                                                                     \
+        if (pulseRingBufferTail[__AXIS__] != pulseRingBufferHead[__AXIS__])                               \
+        {                                                                                                 \
+            pulseRingBufferTail[__AXIS__] = (pulseRingBufferTail[__AXIS__] + 1) % (__RING_BUFFER_SIZE__); \
+        }                                                                                                 \
     } while (0);
 
 // get which axis the time handle belongs to
@@ -199,7 +202,7 @@ typedef struct
                                                                            : UINT8_MAX)
 
 // check if ring buffer is exhausted
-#define IS_RING_BUFFER_EXHAUSTED(__AXIS__) (ringBufferHead[__AXIS__] == ringBufferTail[__AXIS__])
+#define IS_RING_BUFFER_EXHAUSTED(__AXIS__) (pulseRingBufferHead[__AXIS__] == pulseRingBufferTail[__AXIS__])
 
 // get direction output bit from axis
 #define GET_DIRECTION_BIT_FROM_AXIS(__AXIS__)                                                  \
@@ -231,85 +234,69 @@ typedef struct
  *          TIM_OCMODE_ASYMMETRIC_PWM2
  */
 // set output compare mode for channel 1
-#define SET_OC_MODE_CHANNEL_1(__TIM_HANDLE__, __OC_MODE__)                          \
-    do                                                                              \
-    {                                                                               \
-        (__TIM_HANDLE__)->Instance->CCMR1 &= ~TIM_CCMR1_OC1M;                       \
-        (__TIM_HANDLE__)->Instance->CCMR1 |= ((__OC_MODE__) << TIM_CCMR1_OC1M_Pos); \
-    } while (0);
+#define SET_OC_MODE_CHANNEL_1(__TIM_HANDLE__, __OC_MODE__)      \
+    stepSetTimerOC1Mode(__TIM_HANDLE__->Instance, __OC_MODE__); \
 
 // set output compare mode for channel 2
-#define SET_OC_MODE_CHANNEL_2(__TIM_HANDLE__, __OC_MODE__)                          \
-    do                                                                              \
-    {                                                                               \
-        (__TIM_HANDLE__)->Instance->CCMR1 &= ~TIM_CCMR1_OC2M;                       \
-        (__TIM_HANDLE__)->Instance->CCMR1 |= ((__OC_MODE__) << TIM_CCMR1_OC2M_Pos); \
-    } while (0);
+#define SET_OC_MODE_CHANNEL_2(__TIM_HANDLE__, __OC_MODE__)      \
+    stepSetTimerOC2Mode(__TIM_HANDLE__->Instance, __OC_MODE__); \
 
 // set output compare mode for channel 3
-#define SET_OC_MODE_CHANNEL_3(__TIM_HANDLE__, __OC_MODE__)                          \
-    do                                                                              \
-    {                                                                               \
-        (__TIM_HANDLE__)->Instance->CCMR2 &= ~TIM_CCMR2_OC3M;                       \
-        (__TIM_HANDLE__)->Instance->CCMR2 |= ((__OC_MODE__) << TIM_CCMR2_OC3M_Pos); \
-    } while (0);
+#define SET_OC_MODE_CHANNEL_3(__TIM_HANDLE__, __OC_MODE__)      \
+    stepSetTimerOC3Mode(__TIM_HANDLE__->Instance, __OC_MODE__); \
 
 // set output compare mode for channel 4
-#define SET_OC_MODE_CHANNEL_4(__TIM_HANDLE__, __OC_MODE__)                          \
-    do                                                                              \
-    {                                                                               \
-        (__TIM_HANDLE__)->Instance->CCMR2 &= ~TIM_CCMR2_OC4M;                       \
-        (__TIM_HANDLE__)->Instance->CCMR2 |= ((__OC_MODE__) << TIM_CCMR2_OC4M_Pos); \
-    } while (0);
+#define SET_OC_MODE_CHANNEL_4(__TIM_HANDLE__, __OC_MODE__)      \
+    stepSetTimerOC4Mode(__TIM_HANDLE__->Instance, __OC_MODE__); \
 
 // Force output pin to LOW in output compare mode
-#define FORCE_OC_OUTPUT_LOW(__TIM_HANDLE__, __ACTIVE_CHANNEL__)        \
+#define FORCE_OC_OUTPUT_LOW(__TIM_HANDLE__, __TIM_CHANNEL__)           \
     do                                                                 \
     {                                                                  \
-        if ((__ACTIVE_CHANNEL__) == HAL_TIM_ACTIVE_CHANNEL_1)          \
+        if ((__TIM_CHANNEL__) == TIM_CHANNEL_1)                        \
             SET_OC_MODE_CHANNEL_1(__TIM_HANDLE__, TIM_OCMODE_INACTIVE) \
-        else if ((__ACTIVE_CHANNEL__) == HAL_TIM_ACTIVE_CHANNEL_2)     \
+        else if ((__TIM_CHANNEL__) == TIM_CHANNEL_2)                   \
             SET_OC_MODE_CHANNEL_2(__TIM_HANDLE__, TIM_OCMODE_INACTIVE) \
-        else if ((__ACTIVE_CHANNEL__) == HAL_TIM_ACTIVE_CHANNEL_3)     \
+        else if ((__TIM_CHANNEL__) == TIM_CHANNEL_3)                   \
             SET_OC_MODE_CHANNEL_3(__TIM_HANDLE__, TIM_OCMODE_INACTIVE) \
-        else if ((__ACTIVE_CHANNEL__) == HAL_TIM_ACTIVE_CHANNEL_4)     \
+        else if ((__TIM_CHANNEL__) == TIM_CHANNEL_4)                   \
             SET_OC_MODE_CHANNEL_4(__TIM_HANDLE__, TIM_OCMODE_INACTIVE) \
     } while (0);
 
 // Force output pin to HIGH in output compare mode
-#define FORCE_OC_OUTPUT_HIGH(__TIM_HANDLE__, __ACTIVE_CHANNEL__)     \
+#define FORCE_OC_OUTPUT_HIGH(__TIM_HANDLE__, __TIM_CHANNEL__)        \
     do                                                               \
     {                                                                \
-        if ((__ACTIVE_CHANNEL__) == HAL_TIM_ACTIVE_CHANNEL_1)        \
+        if ((__TIM_CHANNEL__) == TIM_CHANNEL_1)                      \
             SET_OC_MODE_CHANNEL_1(__TIM_HANDLE__, TIM_OCMODE_ACTIVE) \
-        else if ((__ACTIVE_CHANNEL__) == HAL_TIM_ACTIVE_CHANNEL_2)   \
+        else if ((__TIM_CHANNEL__) == TIM_CHANNEL_2)                 \
             SET_OC_MODE_CHANNEL_2(__TIM_HANDLE__, TIM_OCMODE_ACTIVE) \
-        else if ((__ACTIVE_CHANNEL__) == HAL_TIM_ACTIVE_CHANNEL_3)   \
+        else if ((__TIM_CHANNEL__) == TIM_CHANNEL_3)                 \
             SET_OC_MODE_CHANNEL_3(__TIM_HANDLE__, TIM_OCMODE_ACTIVE) \
-        else if ((__ACTIVE_CHANNEL__) == HAL_TIM_ACTIVE_CHANNEL_4)   \
+        else if ((__TIM_CHANNEL__) == TIM_CHANNEL_4)                 \
             SET_OC_MODE_CHANNEL_4(__TIM_HANDLE__, TIM_OCMODE_ACTIVE) \
     } while (0);
 
 // Force output turned into toggle mode in output compare mode
-#define FORCE_OC_OUTPUT_TOGGLE(__TIM_HANDLE__, __ACTIVE_CHANNEL__)   \
+#define FORCE_OC_OUTPUT_TOGGLE(__TIM_HANDLE__, __TIM_CHANNEL__)      \
     do                                                               \
     {                                                                \
-        if ((__ACTIVE_CHANNEL__) == HAL_TIM_ACTIVE_CHANNEL_1)        \
+        if ((__TIM_CHANNEL__) == TIM_CHANNEL_1)                      \
             SET_OC_MODE_CHANNEL_1(__TIM_HANDLE__, TIM_OCMODE_TOGGLE) \
-        else if ((__ACTIVE_CHANNEL__) == HAL_TIM_ACTIVE_CHANNEL_2)   \
+        else if ((__TIM_CHANNEL__) == TIM_CHANNEL_2)                 \
             SET_OC_MODE_CHANNEL_2(__TIM_HANDLE__, TIM_OCMODE_TOGGLE) \
-        else if ((__ACTIVE_CHANNEL__) == HAL_TIM_ACTIVE_CHANNEL_3)   \
+        else if ((__TIM_CHANNEL__) == TIM_CHANNEL_3)                 \
             SET_OC_MODE_CHANNEL_3(__TIM_HANDLE__, TIM_OCMODE_TOGGLE) \
-        else if ((__ACTIVE_CHANNEL__) == HAL_TIM_ACTIVE_CHANNEL_4)   \
+        else if ((__TIM_CHANNEL__) == TIM_CHANNEL_4)                 \
             SET_OC_MODE_CHANNEL_4(__TIM_HANDLE__, TIM_OCMODE_TOGGLE) \
     } while (0);
 
 // get the bit position in general notification of data not available for specified axis
-#define GET_DATA_NOT_AVAILABLE_BIT(__AXIS__) \
-    ((__AXIS__ == X_AXIS) ? GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_X_AXIS  \
-    : (__AXIS__ == Y_AXIS) ? GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_Y_AXIS \
-    : (__AXIS__ == Z_AXIS) ? GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_Z_AXIS \
-    : 0)
+#define GET_DATA_NOT_AVAILABLE_BIT(__AXIS__)                                 \
+    ((__AXIS__ == X_AXIS)   ? GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_X_AXIS \
+     : (__AXIS__ == Y_AXIS) ? GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_Y_AXIS \
+     : (__AXIS__ == Z_AXIS) ? GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_Z_AXIS \
+                            : 0)
 
 /* exported functions */
 void stepInit(void);
@@ -318,5 +305,6 @@ void stepWakeUp();
 void stepGoIdle();
 void stepEnablePulseCalculate();
 void stepDisablePulseCalculate();
+void stepNotifyContinuePulseCalculation();
 
 #endif // __STEP_H
