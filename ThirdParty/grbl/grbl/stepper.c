@@ -46,9 +46,18 @@
 #ifdef ADAPTIVE_MULTI_AXIS_STEP_SMOOTHING
 #define MAX_AMASS_LEVEL 3
 // AMASS_LEVEL0: Normal operation. No AMASS. No upper cutoff frequency. Starts at LEVEL1 cutoff frequency.
-#define AMASS_LEVEL1 (F_CPU / 8000) // Over-drives ISR (x2). Defined as F_CPU/(Cutoff frequency in Hz)
-#define AMASS_LEVEL2 (F_CPU / 4000) // Over-drives ISR (x4)
-#define AMASS_LEVEL3 (F_CPU / 2000) // Over-drives ISR (x8)
+#if defined(AVR_ARCH)
+  #define AMASS_LEVEL1 (F_CPU / 8000) // Over-drives ISR (x2). Defined as F_CPU/(Cutoff frequency in Hz)
+  #define AMASS_LEVEL2 (F_CPU / 4000) // Over-drives ISR (x4)
+  #define AMASS_LEVEL3 (F_CPU / 2000) // Over-drives ISR (x8)
+#elif defined(STM32F7XX_ARCH) // F_CPU = 108MHz for STM32F7XX which is the clock frequency of APB1 for TIM2 and TIM5
+  #define AMASS_LEVEL1 (uint32_t)(F_CPU / 54000) // Over-drives ISR (x2). Defined as F_CPU/(Cutoff frequency in Hz)
+  #define AMASS_LEVEL2 (uint32_t)(F_CPU / 27000) // Over-drives ISR (x4)
+  #define AMASS_LEVEL3 (uint32_t)(F_CPU / 13500) // Over-drives ISR (x8)
+
+  #define MAX_FREQ 100000 // 100kHz
+  #define MIN_CYCLES_PER_TICK (uint32_t)(F_CPU / MAX_FREQ)
+#endif
 
 #if MAX_AMASS_LEVEL <= 0
 error "AMASS must have 1 or more levels to operate correctly."
@@ -82,7 +91,11 @@ static st_block_t st_block_buffer[SEGMENT_BUFFER_SIZE - 1];
 typedef struct
 {
   uint16_t n_step;          // Number of step events to be executed for this segment
+#if defined(AVR_ARCH)
   uint16_t cycles_per_tick; // Step distance traveled per ISR tick, aka step rate.
+#elif defined(STM32F7XX_ARCH)
+  uint32_t cycles_per_tick; // Step distance traveled per ISR tick, aka step rate.
+#endif
   uint8_t st_block_index;   // Stepper block data index. Uses this information to execute this segment.
 #ifdef ADAPTIVE_MULTI_AXIS_STEP_SMOOTHING
   uint8_t amass_level; // Indicates AMASS level for the ISR to execute this segment
@@ -184,6 +197,7 @@ typedef struct
 #endif
 } st_prep_t;
 static st_prep_t prep;
+
 
 /*    BLOCK VELOCITY PROFILE DEFINITION
           __________________________
@@ -392,6 +406,7 @@ void stepper_pulse_generation_isr()
 #elif defined(STM32F7XX_ARCH)
   if (stepCalculatePulseData((uint32_t *)(&st)) != HAL_OK)
   {
+    stepDisablePulseCalculate();
     return;
   }
 #endif // AVR_ARCH
@@ -459,6 +474,9 @@ void stepper_pulse_generation_isr()
       // inform the step agent in step.c
       // that there is no more step to generate.
       stepDisablePulseCalculate();
+
+      // clear output bits
+      st.step_outbits = step_port_invert_mask;
       // st_go_idle();
       // stepDisablePulseCalculate();
       busy = false;
@@ -575,11 +593,6 @@ void stepper_pulse_generation_isr()
   st.step_outbits_dual ^= step_port_invert_mask_dual;
 #endif
   busy = false;
-
-#if defined(STM32F7XX_ARCH)
-  // notify the step agent in step.c to generate the next pulse
-  stepNotifyContinuePulseCalculation();
-#endif // STM32F7XX_ARCH
 }
 
 /* The Stepper Port Reset Interrupt: Timer0 OVF interrupt handles the falling edge of the step
@@ -1256,7 +1269,7 @@ void st_prep_buffer()
     uint32_t cycles = ceil(((uint32_t)TICKS_PER_MICROSECOND * 1000000 * 60) * inv_rate); // (cycles/step)
 
 #ifdef ADAPTIVE_MULTI_AXIS_STEP_SMOOTHING
-                                                                                         // Compute step timing and multi-axis smoothing level.
+    // Compute step timing and multi-axis smoothing level.
     // NOTE: AMASS overdrives the timer with each level, so only one prescalar is required.
     if (cycles < AMASS_LEVEL1)
     {
@@ -1279,13 +1292,25 @@ void st_prep_buffer()
       cycles >>= prep_segment->amass_level;
       prep_segment->n_step <<= prep_segment->amass_level;
     }
+  #if defined(AVR_ARCH)
     if (cycles < (1UL << 16))
+  #elif defined(STM32F7XX_ARCH)
+    if(cycles < MIN_CYCLES_PER_TICK)
+    {
+      prep_segment->cycles_per_tick = MIN_CYCLES_PER_TICK;
+    }
+    else if (cycles < 0xffffffff)
+  #endif
     {
       prep_segment->cycles_per_tick = cycles;
     } // < 65536 (4.1ms @ 16MHz)
     else
     {
+    #if defined(AVR_ARCH)
       prep_segment->cycles_per_tick = 0xffff;
+    #elif defined(STM32F7XX_ARCH)
+      prep_segment->cycles_per_tick = 0xffffffff;
+    #endif
     } // Just set the slowest speed possible.
 #else
                                                                                          // Compute step timing and timer prescalar for normal step generation.

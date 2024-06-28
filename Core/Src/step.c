@@ -14,8 +14,8 @@
 #define N_AXIS NUM_DIMENSIONS
 #define PULSE_FREQ 100000  // Hz
 #define HALF_PERIOD 0x7FFF // 0xFFFF / 2
-#define RING_BUFFER_SIZE 6
-#define GAP_HEAD_TAIL 2 // gap between head and tail, two buffers in used by DMA
+#define RING_BUFFER_SIZE 16
+#define GAP_HEAD_TAIL 3 // gap between head and tail, two buffers in used by DMA
 #define STEP_INCREMENT_PERIOD APB1_TIMER_CLOCK / 100
 #define STEP_INCREMENT 3
 
@@ -85,7 +85,7 @@ typedef struct
 typedef struct
 {
     uint16_t n_step;          // Number of step events to be executed for this segment
-    uint16_t cycles_per_tick; // Step distance traveled per ISR tick, aka step rate.
+    uint32_t cycles_per_tick; // Step distance traveled per ISR tick, aka step rate.
     uint8_t st_block_index;   // Stepper block data index. Uses this information to execute this segment.
 #ifdef ADAPTIVE_MULTI_AXIS_STEP_SMOOTHING
     uint8_t amass_level; // Indicates AMASS level for the ISR to execute this segment
@@ -156,7 +156,7 @@ volatile uint8_t currentStepperState = 0; // bit 0: x axis active, bit 1: y axis
 volatile uint8_t DMAUpdatedAxes = 0; // bit 0: x axis, bit 1: y axis, bit 2: z axis
 
 // track DMA transfer completion
-volatile uint8_t DMACompletedAxes = 0; // bit 0: x axis, bit 1: y axis, bit 2: z axis
+volatile uint8_t DMATransferCompletedAxes = 0; // bit 0: x axis, bit 1: y axis, bit 2: z axis
 
 // current counter value only for calculating the pulse data
 volatile uint32_t currentCounterValue = MINIMUN_LOW_PULSE_WIDTH_TICKS;
@@ -170,7 +170,7 @@ TaskHandle_t xHandleStepTask = NULL;
  * Function Prototypes
  */
 void stepTask(void *pvParameters);
-void stepUpdateDMABuffer(TIM_HandleTypeDef *htim, uint32_t address, axis_t axis);
+void stepUpdateDMABuffer(uint32_t address);
 static void TIM_DMADelayPulseCplt(DMA_HandleTypeDef *hdma);
 HAL_StatusTypeDef stepTimeOCStartDMA(TIM_HandleTypeDef *htim, uint32_t Channel, const uint32_t *pData, uint16_t Length);
 uint16_t stepRingBufferGetNext();
@@ -222,7 +222,7 @@ void stepInit(void)
     }
 
     // create tasks
-    xTaskCreate(stepTask, "StepTask", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY, &xHandleStepTask);
+    xTaskCreate(stepTask, "StepTask", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, &xHandleStepTask);
 }
 
 // handler for step task
@@ -349,42 +349,29 @@ void stepTask(void *pvParameters)
             HAL_GPIO_WritePin(GPIOD, GPIO_PIN_5, GPIO_PIN_SET);
 
             // Determine if it should request for new data or not.
-            // The request is not needed if there is at least one axis
-            // that has finished its DMA buffer updating.
-            if (!DMAUpdatedAxes)
+            if (currentStepperState == DMATransferCompletedAxes)
             {
                 // get available address
                 pulseBlockAddress = stepGetAvailableDataAddress();
-            }
 
-            // set up each axis
-            for (uint8_t i = 0; i < NUM_DIMENSIONS; i++)
-            {
-                // determine which axis notified that it is out of data
-                if (generalNotification & GET_DATA_NOT_AVAILABLE_BIT(i))
+                if (pulseBlockAddress == 0)
                 {
-                    // check if the address is valid
-                    if (pulseBlockAddress != 0)
-                    {
-                        // update DMA buffer
-                        stepUpdateDMABuffer(axisTimerDMAParams[i].htim, pulseBlockAddress, i);
-
-                        // reset the flag in general notification
-                        generalNotification &= ~GET_DATA_NOT_AVAILABLE_BIT(i);
-                    }
-                    else
-                    {
-                        // should not reach here, because the 3-axis data is calculated simultaneously
-                        Error_Handler();
-                    }
+                    // Error_Handler();
+                    continue;
                 }
+
+                // clear DMA transfer completed axes
+                DMATransferCompletedAxes = 0;
             }
 
-            if (pulseBlockAddress)
-            {
-                // restart counter
-                TIM_START_COUNTER(MASTER_TIM_HANDLE);
-            }
+            // update DMA buffer
+            stepUpdateDMABuffer(pulseBlockAddress);
+
+            // restart counter
+            TIM_START_COUNTER(MASTER_TIM_HANDLE);
+
+            // clear the flag
+            generalNotification &= ~GENERAL_NOTIFICATION_DATA_NOT_AVAILABLE_ALL_AXES;
 
             // set PD5 to low ===> signal the end of resuming DMA stream
             HAL_GPIO_WritePin(GPIOD, GPIO_PIN_5, GPIO_PIN_RESET);
@@ -401,8 +388,25 @@ HAL_StatusTypeDef stepCalculatePulseData(uint32_t *st_addr)
     static pulse_block_t *pulseBlock = {0};
     static pulse_t *pulse;
     static IO_TYPE dirOutputBits = 0;
+    static uint32_t cycles_per_tick = 0;
+    static uint8_t amass_level = 0;
 
     stepper_t *st = (stepper_t *)st_addr;
+
+    if (st->exec_segment)
+    {
+        // update variables
+        cycles_per_tick = st->exec_segment->cycles_per_tick;
+        amass_level = st->exec_segment->amass_level;
+    }
+
+    if (!(st->step_pulse_time) || (st->exec_segment->cycles_per_tick == 0) || (st->exec_segment->cycles_per_tick == 0xffffffff))
+    {
+        // set PD4 to low ===> signal the end of pulse calculation
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_4, GPIO_PIN_RESET);
+
+        return HAL_ERROR;
+    }
 
     // determine if a new buffer is needed
     if (getNewBuffer || (dirOutputBits != st->dir_outbits) || (generalNotification & GENERAL_NOTIFICATION_GET_NEW_BUFFER))
@@ -481,7 +485,7 @@ HAL_StatusTypeDef stepCalculatePulseData(uint32_t *st_addr)
     }
 
     // update variables
-    currentCounterValue += st->exec_segment->cycles_per_tick;
+    currentCounterValue += cycles_per_tick * (amass_level + 1);
 
     // check if any buffer is full of data
     if (getNewBuffer)
@@ -489,7 +493,9 @@ HAL_StatusTypeDef stepCalculatePulseData(uint32_t *st_addr)
         // increment head
         stepRingBufferIncrementHead();
 
-        // getNewBuffer = (1 << NUM_DIMENSIONS) - 1;
+        // clear motion control state
+        pulseRingBuffer[pulseRingBufferHead].motion_control_state = 0;
+
     }
 
     // set PD4 to low ===> signal the end of pulse calculation
@@ -498,142 +504,101 @@ HAL_StatusTypeDef stepCalculatePulseData(uint32_t *st_addr)
     return HAL_OK;
 }
 
-void stepUpdateDMABuffer(TIM_HandleTypeDef *htim, uint32_t address, axis_t axis)
+void stepUpdateDMABuffer(uint32_t address)
 {
     // set PD7 to high ===> signal the start of updating DMA buffer
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_SET);
 
-    uint8_t dirOutputBit = GET_DIRECTION_BIT_FROM_AXIS(axis);
-    volatile uint32_t *pDirOutputPort = GET_DIRECTION_PORT_FROM_AXIS(axis);
     pulse_block_t *pulseBlock = (pulse_block_t *)address;
-    pulse_t *pulse = &(pulseBlock->pulse_data[axis]);
-    uint8_t upcomingAxesActiveState = 0;
-
-    // get upcoming axes active state
-    upcomingAxesActiveState = pulseBlock->motion_control_state;
-
-    // check if this axis shall be put into idle or not
-    if (!(upcomingAxesActiveState & (1 << axis))) // no pulsed data to be sent
-    {
-        // set the axis to idle
-        currentStepperState &= ~(1 << axis);
-
-        // force output pin to low in output compare mode
-        FORCE_OC_OUTPUT_LOW(htim, axisTimerDMAParams[axis].TIM_CHANNEL);
-    }
-    else // still has pulsed data to be sent
-    {
-        // set the axis to active
-        currentStepperState |= (1 << axis);
-
-        // set the direction output bit according to the dir_outbit
-        *pDirOutputPort = (*pDirOutputPort & ~(1 << dirOutputBit)) | (pulseBlock->dir_outbits & (1 << dirOutputBit));
-
-        // resume DMA stream with updated buffer and length
-        HAL_StatusTypeDef status = stepTimeOCStartDMA(htim, axisTimerDMAParams[axis].TIM_CHANNEL, (uint32_t *)pulse, pulse->length);
-        if (status == HAL_BUSY)
-        {
-            RESUME_DMA_STREAM_WITH_TC(htim->hdma[GET_TIM_DMA_ID_FROM_AXIS(axis)], (uint32_t *)pulse, pulse->length);
-        }
-    }
-
-    // set the axis that its DMA transfer is completed
-    DMAUpdatedAxes |= (1 << axis);
-
-    /**
-     * Check if there is any axis that shall be re-enabled from idle
-     */
+    uint8_t upcomingAxesActiveState = pulseBlock->motion_control_state; // get upcoming axes active state
     // check if there is any bit that is set to 0 in currentStepperState
     // and the corresponding bit is set to 1 in upcomingAxesActiveState.
     // make these axes which shall be re-enabled from idle
     uint8_t axisToBeReEnabled = (currentStepperState ^ upcomingAxesActiveState) & upcomingAxesActiveState;
 
+    /**
+     * Check if there is any axis that shall be re-enabled from idle, resume DMA stream, or turn into idle state
+     */
     // manual update those axes that shall be re-enabled from idle and will stay in idle state in the upcoming cycle
     // to avoid update the same axis twice,
-    if (DMAUpdatedAxes != ((1 << NUM_DIMENSIONS) - 1))
+    // loop through all axes
+    for (uint8_t i = 0; i < NUM_DIMENSIONS; i++)
     {
-        // loop through all axes
-        for (uint8_t i = 0; i < NUM_DIMENSIONS; i++)
+        // pulse data
+        pulse_t *pulse = &(pulseBlock->pulse_data[i]);
+        uint8_t dirOutputBit = GET_DIRECTION_BIT_FROM_AXIS(i);
+        volatile uint32_t *pDirOutputPort = GET_DIRECTION_PORT_FROM_AXIS(i);
+
+        // check if this axis shall be re-enabled from idle
+        if (axisToBeReEnabled & (1 << i))
         {
-            // check if this axis has been updated
-            if (DMAUpdatedAxes & (1 << i))
+            // set the axis to active
+            currentStepperState |= (1 << i);
+
+            // check if the address is valid
+            if (address != 0)
             {
-                // skip this axis
-                continue;
-            }
-            // check if this axis shall be re-enabled from idle
-            else if (axisToBeReEnabled & (1 << i))
-            {
-                // set the axis to active
-                currentStepperState |= (1 << i);
+                // set the direction output bit according to the dir_outbit
+                *pDirOutputPort = (*pDirOutputPort & ~(1 << dirOutputBit)) | (pulseBlock->dir_outbits & (1 << dirOutputBit));
 
-                // pulse data
-                pulse = &(pulseBlock->pulse_data[i]);
-                dirOutputBit = GET_DIRECTION_BIT_FROM_AXIS(i);
-                pDirOutputPort = GET_DIRECTION_PORT_FROM_AXIS(i);
+                // force output turned into toggle mode
+                FORCE_OC_OUTPUT_TOGGLE(axisTimerDMAParams[i].htim, axisTimerDMAParams[i].TIM_CHANNEL);
 
-                // check if the address is valid
-                if (address != 0)
+                // resume DMA stream with updated buffer and length
+                // RESUME_DMA_STREAM_WITH_TC(axisTimerDMAParams[i].htim->hdma[axisTimerDMAParams[i].TIM_DMA_ID], (uint32_t *)pulse, pulse->length);
+                HAL_StatusTypeDef status = stepTimeOCStartDMA(axisTimerDMAParams[i].htim, axisTimerDMAParams[i].TIM_CHANNEL, (uint32_t *)pulse, pulse->length);
+
+                if (status == HAL_BUSY)
                 {
-                    // set the direction output bit according to the dir_outbit
-                    *pDirOutputPort = (*pDirOutputPort & ~(1 << dirOutputBit)) | (pulseBlock->dir_outbits & (1 << dirOutputBit));
-
-                    // force output turned into toggle mode
-                    FORCE_OC_OUTPUT_TOGGLE(axisTimerDMAParams[i].htim, axisTimerDMAParams[i].TIM_CHANNEL);
-
-                    // resume DMA stream with updated buffer and length
-                    // RESUME_DMA_STREAM_WITH_TC(axisTimerDMAParams[i].htim->hdma[axisTimerDMAParams[i].TIM_DMA_ID], (uint32_t *)pulse, pulse->length);
-                    HAL_StatusTypeDef status = stepTimeOCStartDMA(axisTimerDMAParams[i].htim, axisTimerDMAParams[i].TIM_CHANNEL, (uint32_t *)pulse, pulse->length);
-
-                    if (status == HAL_BUSY)
-                    {
-                        RESUME_DMA_STREAM_WITH_TC(axisTimerDMAParams[i].htim->hdma[axisTimerDMAParams[i].TIM_DMA_ID], (uint32_t *)pulse, pulse->length);
-                    }
-
-                    // check if the capture/compare interrupt flag is set
-                    if (__HAL_TIM_GET_FLAG(axisTimerDMAParams[i].htim, axisTimerDMAParams[i].TIM_FLAG_CCx) == RESET)
-                    {
-                        // generate compare event to trigger the DMA transfer
-                        HAL_TIM_GenerateEvent(axisTimerDMAParams[i].htim, axisTimerDMAParams[i].CompareEventID);
-                    }
-                }
-                else
-                {
-                    // should not reach here, because the 3-axis data is calculated simultaneously
-                    Error_Handler();
+                    RESUME_DMA_STREAM_WITH_TC(axisTimerDMAParams[i].htim->hdma[axisTimerDMAParams[i].TIM_DMA_ID], (uint32_t *)pulse, pulse->length);
                 }
 
-                // set this axis that its DMA buffer has been updated
-                DMAUpdatedAxes |= (1 << i);
+                // check if the capture/compare interrupt flag is set
+                if (__HAL_TIM_GET_FLAG(axisTimerDMAParams[i].htim, axisTimerDMAParams[i].TIM_FLAG_CCx) == RESET)
+                {
+                    // generate compare event to trigger the DMA transfer
+                    HAL_TIM_GenerateEvent(axisTimerDMAParams[i].htim, axisTimerDMAParams[i].CompareEventID);
+                }
             }
-            else if (currentStepperState & (1 << i))
+            else
             {
-                // still in active state
-
-                // resume the DMA stream
-            }   
-            else if (!(currentStepperState & (1 << i)))
-            {
-                // still in idle state
-
-                // set this axis that its DMA buffer has been updated
-                DMAUpdatedAxes |= (1 << i);
+                // should not reach here, because the 3-axis data is calculated simultaneously
+                Error_Handler();
             }
+        }
+        else if ((currentStepperState & upcomingAxesActiveState) & (1 << i)) // active mode(present) -> active mode(upcoming)
+        {
+            // still in active state
+
+            // resume the DMA stream
+            // set the axis to active
+            currentStepperState |= (1 << i);
+
+            // set the direction output bit according to the dir_outbit
+            *pDirOutputPort = (*pDirOutputPort & ~(1 << dirOutputBit)) | (pulseBlock->dir_outbits & (1 << dirOutputBit));
+
+            // resume DMA stream with updated buffer and length
+            HAL_StatusTypeDef status = stepTimeOCStartDMA(axisTimerDMAParams[i].htim, axisTimerDMAParams[i].TIM_CHANNEL, (uint32_t *)pulse, pulse->length);
+            if (status == HAL_BUSY)
+            {
+                RESUME_DMA_STREAM_WITH_TC(axisTimerDMAParams[i].htim->hdma[GET_TIM_DMA_ID_FROM_AXIS(i)], (uint32_t *)pulse, pulse->length);
+            }
+        }
+        else // idle mode(present) -> idle mode(upcoming) or active mode(present) -> idle mode(upcoming)
+        {
+            // turn into idle state
+
+            // set the axis to idle
+            currentStepperState &= ~(1 << i);
+
+            // force output pin to low in output compare mode
+            FORCE_OC_OUTPUT_LOW(axisTimerDMAParams[i].htim, axisTimerDMAParams[i].TIM_CHANNEL);
         }
     }
 
     /**
      * Update Variables
      */
-    // check if all axes have completed their DMA transfer
-    if (DMAUpdatedAxes == (1 << NUM_DIMENSIONS) - 1)
-    {
-        // reset the axes that their DMA transfer is completed
-        DMAUpdatedAxes = 0;
-
-        // set generatl notification to all axes have completed their DMA transfer
-        generalNotification |= GENERAL_NOTIFICATION_ALL_AXES_DMA_UPDATED;
-    }
 
     // set PD7 to low ===> signal the end of updating DMA buffer
     HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_RESET);
@@ -675,14 +640,14 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
     // }
 
     // set the axis that its DMA transfer is completed
-    DMACompletedAxes |= (1 << axis);
+    DMATransferCompletedAxes |= (1 << axis);
 
     /**
      * Start Update DMA buffer
      */
     // determine if it should request for new data or not
     // if (generalNotification & GENERAL_NOTIFICATION_ALL_AXES_DMA_UPDATED)
-    if (currentStepperState == DMACompletedAxes)
+    if (currentStepperState == DMATransferCompletedAxes)
     {
         // get the available data address
         pulseBlockAddress = stepGetAvailableDataAddress();
@@ -690,7 +655,10 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
         // check if the address is valid
         if (pulseBlockAddress != 0)
         {
-            stepUpdateDMABuffer(htim, pulseBlockAddress, axis);
+            stepUpdateDMABuffer(pulseBlockAddress);
+
+            // clear DMA transfer completed axes
+            DMATransferCompletedAxes = 0;
 
             // restart counter
             TIM_START_COUNTER(MASTER_TIM_HANDLE);
@@ -700,9 +668,6 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
             // notify main task to update pulse data
             generalNotification |= GET_DATA_NOT_AVAILABLE_BIT(axis);
         }
-
-        // clear the flag
-        generalNotification &= ~GENERAL_NOTIFICATION_ALL_AXES_DMA_UPDATED;
     }
     else
     {
