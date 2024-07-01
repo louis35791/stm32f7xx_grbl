@@ -131,6 +131,11 @@ int main(void)
   // init TCP
   tcp_server_init();
 
+#ifdef ENCODER_ENABLE
+  // init encoder
+  encoderInit();
+#endif
+
   // create grbl task
   xTaskCreate(mainGRBL, "grblTask", configMINIMAL_STACK_SIZE * 4, NULL, tskIDLE_PRIORITY, NULL);
 
@@ -843,7 +848,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN Callback 1 */
   else if (htim->Instance == TIM7)
   {
-    encoderInterruptHandler(&X_ENCODER_TIM_HANDLE);
+    encoderInterruptHandler();
   }
 
   /* USER CODE END Callback 1 */

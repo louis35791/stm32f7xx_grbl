@@ -12,6 +12,18 @@
 #include "task.h"
 #include "utils.h"
 
+#define ENCODER_ENABLE
+
+/* type define */
+typedef enum AxisEnum
+{
+    X_AXIS = 0,
+    Y_AXIS,
+    Z_AXIS,
+    NUM_DIMENSIONS
+} axis_t;
+
+
 /* exported functions */
 void vLoggingPrintf(const char *pcFormatString, ...);
 

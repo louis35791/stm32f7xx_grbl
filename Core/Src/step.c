@@ -1,6 +1,5 @@
 #include <string.h>
 #include "stm32f7xx_hal.h"
-#include "stm32f7xx_grbl.h"
 #include "stm32f7xx_timer_extension.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -10,6 +9,8 @@
 #undef Y_AXIS
 #undef Z_AXIS
 #undef N_AXIS
+
+#include "stm32f7xx_grbl.h"
 
 #define N_AXIS NUM_DIMENSIONS
 #define PULSE_FREQ 100000  // Hz
@@ -26,14 +27,6 @@ extern TIM_HandleTypeDef htim5;
 /**
  * Type Defines
  */
-typedef enum AxisEnum
-{
-    X_AXIS = 0,
-    Y_AXIS,
-    Z_AXIS,
-    NUM_DIMENSIONS
-} axis_t;
-
 typedef struct TIM_DMA_Parameters
 {
     TIM_HandleTypeDef *htim;
