@@ -79,6 +79,11 @@
 #include "print.h"
 #include "probe.h"
 #include "protocol.h"
+
+#ifdef STM32F7XX_ARCH
+  #include "encoder.h"
+#endif
+
 #include "report.h"
 #include "serial.h"
 #include "spindle_control.h"

@@ -679,6 +679,7 @@
 // updating lots of code to ensure everything is running correctly.
 // #define DUAL_AXIS_CONFIG_CNC_SHIELD_CLONE  // Uncomment to select. Comment other configs.
 
+#define ENCODER_ENABLE  //enable encoder
 
 /* ---------------------------------------------------------------------------------------
    OEM Single File Configuration Option
@@ -692,6 +693,5 @@
 // Paste CPU_MAP definitions here.
 
 // Paste default settings definitions here.
-
 
 #endif

@@ -649,6 +649,16 @@ void report_realtime_status()
     }
   #endif
 
+  #ifdef ENCODER_ENABLE
+    float encoder_degree[3];
+    encoderReadDegree(encoder_degree);
+    printPgmString(PSTR("|RPos:"));
+    for (uint8_t idx = 0; idx<N_AXIS; idx++) {
+      printFloat_CoordValue(encoder_degree[idx] / (settings.steps_per_mm[idx] * 0.18));
+      if (idx < (N_AXIS-1)) { serial_write(',');}
+    }
+  #endif
+
   serial_write('>');
   report_util_line_feed();
 }
