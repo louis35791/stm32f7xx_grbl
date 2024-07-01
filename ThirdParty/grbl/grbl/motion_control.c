@@ -196,7 +196,10 @@ void mc_dwell(float seconds)
 {
   if (sys.state == STATE_CHECK_MODE) { return; }
   protocol_buffer_synchronize();
+  //Make state to be RUN when dwelling, and be IDLE after dwelling
+  sys.state = STATE_CYCLE;
   delay_sec(seconds, DELAY_MODE_DWELL);
+  sys.state = STATE_IDLE;
 }
 
 

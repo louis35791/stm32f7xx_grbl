@@ -85,7 +85,7 @@ void protocol_main_loop()
         #ifdef REPORT_ECHO_LINE_RECEIVED
           report_echo_line_received(line);
         #endif
-
+        
         // Direct and execute one line of formatted input, and report status of execution.
         if (line_flags & LINE_FLAG_OVERFLOW) {
           // Report line overflow error.
