@@ -25,7 +25,7 @@ void encoderInit();
 void encoderReadPositionTask(void *pvParameters);
 void encoderInterruptHandler();
 void encoderResetCounter(axis_t axis);
-void encoderReadDegree();
+void encoderReadDegree(encoder_degree_t *degree);
 
 /**
  * TODO
