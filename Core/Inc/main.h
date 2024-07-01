@@ -88,10 +88,14 @@ void Error_Handler(void);
 #define MCO_GPIO_Port GPIOH
 #define RMII_MDC_Pin GPIO_PIN_1
 #define RMII_MDC_GPIO_Port GPIOC
+#define Z_PULSE_Pin GPIO_PIN_0
+#define Z_PULSE_GPIO_Port GPIOA
 #define RMII_REF_CLK_Pin GPIO_PIN_1
 #define RMII_REF_CLK_GPIO_Port GPIOA
 #define RMII_MDIO_Pin GPIO_PIN_2
 #define RMII_MDIO_GPIO_Port GPIOA
+#define Y_PULSE_Pin GPIO_PIN_3
+#define Y_PULSE_GPIO_Port GPIOA
 #define X_DIR_Pin GPIO_PIN_4
 #define X_DIR_GPIO_Port GPIOA
 #define Z_DIR_Pin GPIO_PIN_5
@@ -104,6 +108,8 @@ void Error_Handler(void);
 #define RMII_RXD1_GPIO_Port GPIOC
 #define LD1_Pin GPIO_PIN_0
 #define LD1_GPIO_Port GPIOB
+#define X_PULSE_Pin GPIO_PIN_10
+#define X_PULSE_GPIO_Port GPIOB
 #define Y_DIR_Pin GPIO_PIN_11
 #define Y_DIR_GPIO_Port GPIOB
 #define RMII_TXD1_Pin GPIO_PIN_13

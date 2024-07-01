@@ -51,9 +51,9 @@
   #define AMASS_LEVEL2 (F_CPU / 4000) // Over-drives ISR (x4)
   #define AMASS_LEVEL3 (F_CPU / 2000) // Over-drives ISR (x8)
 #elif defined(STM32F7XX_ARCH) // F_CPU = 108MHz for STM32F7XX which is the clock frequency of APB1 for TIM2 and TIM5
-  #define AMASS_LEVEL1 (uint32_t)(F_CPU / 54000) // Over-drives ISR (x2). Defined as F_CPU/(Cutoff frequency in Hz)
-  #define AMASS_LEVEL2 (uint32_t)(F_CPU / 27000) // Over-drives ISR (x4)
-  #define AMASS_LEVEL3 (uint32_t)(F_CPU / 13500) // Over-drives ISR (x8)
+  #define AMASS_LEVEL1 (uint32_t)(F_CPU / 8000) // Over-drives ISR (x2). Defined as F_CPU/(Cutoff frequency in Hz)
+  #define AMASS_LEVEL2 (uint32_t)(F_CPU / 4000) // Over-drives ISR (x4)
+  #define AMASS_LEVEL3 (uint32_t)(F_CPU / 2000) // Over-drives ISR (x8)
 
   #define MAX_FREQ 100000 // 100kHz
   #define MIN_CYCLES_PER_TICK (uint32_t)(F_CPU / MAX_FREQ)

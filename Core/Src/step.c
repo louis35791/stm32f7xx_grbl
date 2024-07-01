@@ -389,7 +389,7 @@ HAL_StatusTypeDef stepCalculatePulseData(uint32_t *st_addr)
     static pulse_t *pulse;
     static IO_TYPE dirOutputBits = 0;
     static uint32_t cycles_per_tick = 0;
-    static uint8_t amass_level = 0;
+    // static uint8_t amass_level = 0;
 
     stepper_t *st = (stepper_t *)st_addr;
 
@@ -397,7 +397,7 @@ HAL_StatusTypeDef stepCalculatePulseData(uint32_t *st_addr)
     {
         // update variables
         cycles_per_tick = st->exec_segment->cycles_per_tick;
-        amass_level = st->exec_segment->amass_level;
+        // amass_level = st->exec_segment->amass_level;
     }
 
     if (!(st->step_pulse_time) || (st->exec_segment->cycles_per_tick == 0) || (st->exec_segment->cycles_per_tick == 0xffffffff))
@@ -485,7 +485,7 @@ HAL_StatusTypeDef stepCalculatePulseData(uint32_t *st_addr)
     }
 
     // update variables
-    currentCounterValue += cycles_per_tick * (amass_level + 1);
+    currentCounterValue += cycles_per_tick; // * (amass_level + 1);
 
     // check if any buffer is full of data
     if (getNewBuffer)
