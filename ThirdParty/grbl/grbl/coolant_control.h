@@ -41,7 +41,17 @@ void coolant_stop();
 // Sets the coolant pins according to state specified.
 void coolant_set_state(uint8_t mode);
 
+//Output control mimicking coolant_set_state(uint8_t mode)
+#ifdef STM32F7XX_ARCH
+  void output_set_state(uint8_t mode);
+#endif
+
 // G-code parser entry-point for setting coolant states. Checks for and executes additional conditions.
 void coolant_sync(uint8_t mode);
+
+// Output control mimicking coolant_sync(uint8_t mode)
+#ifdef STM32F7XX_ARCH
+  void output_sync(uint8_t mode);
+#endif
 
 #endif

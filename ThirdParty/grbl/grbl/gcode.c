@@ -280,6 +280,15 @@ uint8_t gc_execute_line(char *line)
               gc_block.modal.override = OVERRIDE_PARKING_MOTION;
               break;
           #endif
+          #ifdef STM32F7XX_ARCH
+            case 62: case 63:
+              word_bit = MODAL_GROUP_M10;
+              switch(int_value){
+                case 62: gc_block.modal.io = DIGITOUT_ENABLE; break;
+                case 63: gc_block.modal.io = DIGITOUT_DISABLE; break;
+              }
+              break;
+          #endif
           default: FAIL(STATUS_GCODE_UNSUPPORTED_COMMAND); // [Unsupported M command]
         }
 
@@ -435,6 +444,33 @@ uint8_t gc_execute_line(char *line)
   // [6. Change tool ]: N/A
   // [7. Spindle control ]: N/A
   // [8. Coolant control ]: N/A
+
+  // [8.1. I/O control ]: M62, M63 Supported in STM32F7XX_ARCH
+  #ifdef STM32F7XX_ARCH
+    uint8_t io_port;
+    if (bit_istrue(command_words,bit(MODAL_GROUP_M10))){
+      if (bit_isfalse(value_words,bit(WORD_P))) { FAIL(STATUS_GCODE_VALUE_WORD_MISSING); } // [P word missing]
+      else{io_port = trunc(gc_block.values.p);}
+      if(gc_block.modal.io == DIGITOUT_ENABLE){
+        switch(io_port){
+          case 0: gc_block.modal.io_state |= DIGITOUT_P0_ENABLE; break;
+          case 1: gc_block.modal.io_state |= DIGITOUT_P1_ENABLE; break;
+          case 2: gc_block.modal.io_state |= DIGITOUT_P2_ENABLE; break;
+          case 3: gc_block.modal.io_state |= DIGITOUT_P3_ENABLE; break;
+          default: FAIL(STATUS_GCODE_MAX_VALUE_EXCEEDED);
+        }
+      }
+      else if(gc_block.modal.io == DIGITOUT_DISABLE){
+         switch(io_port){
+          case 0: gc_block.modal.io_state &= ~(DIGITOUT_P0_ENABLE); break;
+          case 1: gc_block.modal.io_state &= ~(DIGITOUT_P1_ENABLE); break;
+          case 2: gc_block.modal.io_state &= ~(DIGITOUT_P2_ENABLE); break;
+          case 3: gc_block.modal.io_state &= ~(DIGITOUT_P3_ENABLE); break;
+          default: FAIL(STATUS_GCODE_MAX_VALUE_EXCEEDED);
+        }
+      }
+    }
+  #endif
   // [9. Override control ]: Not supported except for a Grbl-only parking motion override control.
   #ifdef ENABLE_PARKING_OVERRIDE_CONTROL
     if (bit_istrue(command_words,bit(MODAL_GROUP_M9))) { // Already set as enabled in parser.
@@ -859,6 +895,9 @@ uint8_t gc_execute_line(char *line)
     // Initialize planner data to current spindle and coolant modal state.
     pl_data->spindle_speed = gc_state.spindle_speed;
     plan_data.condition = (gc_state.modal.spindle | gc_state.modal.coolant);
+    #ifdef STM32F7XX_ARCH
+      plan_data.io_condition |= gc_state.modal.io_state;
+    #endif
 
     uint8_t status = jog_execute(&plan_data, &gc_block);
     if (status == STATUS_OK) { memcpy(gc_state.position, gc_block.values.xyz, sizeof(gc_block.values.xyz)); }
@@ -956,6 +995,15 @@ uint8_t gc_execute_line(char *line)
     gc_state.modal.coolant = gc_block.modal.coolant;
   }
   pl_data->condition |= gc_state.modal.coolant; // Set condition flag for planner use.
+
+  // [8.1 I/O control]:
+  #ifdef STM32F7XX_ARCH
+    if (gc_state.modal.io_state != gc_block.modal.io_state){
+      output_sync(gc_block.modal.io_state);
+      gc_state.modal.io_state = gc_block.modal.io_state;
+    }
+    pl_data->io_condition |= gc_state.modal.io_state;
+  #endif
 
   // [9. Override control ]: NOT SUPPORTED. Always enabled. Except for a Grbl-only parking control.
   #ifdef ENABLE_PARKING_OVERRIDE_CONTROL
@@ -1101,6 +1149,9 @@ uint8_t gc_execute_line(char *line)
       gc_state.modal.coord_select = 0; // G54
       gc_state.modal.spindle = SPINDLE_DISABLE;
       gc_state.modal.coolant = COOLANT_DISABLE;
+      #ifdef STM32F7XX_ARCH
+        gc_state.modal.io_state = DIGITOUT_DISABLE;
+      #endif
       #ifdef ENABLE_PARKING_OVERRIDE_CONTROL
         #ifdef DEACTIVATE_PARKING_UPON_INIT
           gc_state.modal.override = OVERRIDE_DISABLED;
@@ -1121,6 +1172,9 @@ uint8_t gc_execute_line(char *line)
         system_flag_wco_change(); // Set to refresh immediately just in case something altered.
         spindle_set_state(SPINDLE_DISABLE,0.0);
         coolant_set_state(COOLANT_DISABLE);
+        #ifdef STM32F7XX_ARCH
+          output_set_state(DIGITOUT_DISABLE);
+        #endif
       }
       report_feedback_message(MESSAGE_PROGRAM_END);
     }

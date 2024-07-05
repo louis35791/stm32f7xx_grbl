@@ -326,6 +326,14 @@
     #define COOLANT_FLOOD_PORT  COOLANT_FLOOD_GPIO_GROUP->ODR
     #define COOLANT_FLOOD_BIT   7  // PF7
 
+    // Define output enable output pins.
+    #define OUTPUT_GPIO_GROUP GPIOF
+    #define OUTPUT_GPIO_PORT OUTPUT_GPIO_GROUP->ODR
+    #define OUTPUT_0_BIT     0  // PF0
+    #define OUTPUT_1_BIT     1  // PF1
+    #define OUTPUT_2_BIT     2  // PF2
+    #define OUTPUT_3_BIT     3  // PF3
+
     // Define spindle enable and spindle direction output pins.
     #define SPINDLE_ENABLE_GPIO_GROUP GPIOF
     #define SPINDLE_ENABLE_PORT   SPINDLE_ENABLE_GPIO_GROUP->ODR

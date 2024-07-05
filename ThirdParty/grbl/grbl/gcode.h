@@ -46,6 +46,10 @@
 #define MODAL_GROUP_M8 13 // [M7,M8,M9] Coolant control
 #define MODAL_GROUP_M9 14 // [M56] Override control
 
+#ifdef STM32F7XX_ARCH
+  #define MODAL_GROUP_M10 15 // [M62,M63] Digital Output
+#endif
+
 // Define command actions for within execution-type modal groups (motion, stopping, non-modal). Used
 // internally by the parser to know which command to execute.
 // NOTE: Some macro values are assigned specific values to make g-code state reporting and parsing 
@@ -132,6 +136,16 @@
   #define OVERRIDE_DISABLED  1 // Parking disabled.
 #endif
 
+// Modal Group M10: Digital Output
+#ifdef STM32F7XX_ARCH
+  #define DIGITOUT_ENABLE 1
+  #define DIGITOUT_DISABLE 0
+  #define DIGITOUT_P0_ENABLE PL_COND_FLAG_DIGITOUT_P0 // M63 P0 (NOTE: Uses planner condition bit flag)
+  #define DIGITOUT_P1_ENABLE PL_COND_FLAG_DIGITOUT_P1 // M63 P1 (NOTE: Uses planner condition bit flag)
+  #define DIGITOUT_P2_ENABLE PL_COND_FLAG_DIGITOUT_P2 // M63 P2 (NOTE: Uses planner condition bit flag)
+  #define DIGITOUT_P3_ENABLE PL_COND_FLAG_DIGITOUT_P3 // M63 P3 (NOTE: Uses planner condition bit flag)
+#endif
+
 // Modal Group G12: Active work coordinate system
 // N/A: Stores coordinate system value (54-59) to change to.
 
@@ -194,6 +208,8 @@ typedef struct {
   uint8_t coolant;         // {M7,M8,M9}
   uint8_t spindle;         // {M3,M4,M5}
   uint8_t override;        // {M56}
+  uint8_t io;              // {M62,M63}
+  uint8_t io_state;        // {M62,M63}
 } gc_modal_t;
 
 typedef struct {

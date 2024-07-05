@@ -118,6 +118,36 @@ void coolant_set_state(uint8_t mode)
   sys.report_ovr_counter = 0; // Set to report change immediately
 }
 
+// Output control mimicking coolant_set_state(uint8_t mode)
+#ifdef STM32F7XX_ARCH
+void output_set_state(uint8_t mode)
+{
+  if (sys.abort) { return; } // Block during abort.  
+  
+	if (mode & DIGITOUT_P0_ENABLE) {
+		OUTPUT_GPIO_PORT |= (1 << OUTPUT_0_BIT);
+	} else {
+		OUTPUT_GPIO_PORT &= ~(1 << OUTPUT_0_BIT);
+	}
+  if (mode & DIGITOUT_P1_ENABLE) {
+		OUTPUT_GPIO_PORT |= (1 << OUTPUT_1_BIT);
+	} else {
+		OUTPUT_GPIO_PORT &= ~(1 << OUTPUT_1_BIT);
+	}
+  if (mode & DIGITOUT_P2_ENABLE) {
+		OUTPUT_GPIO_PORT |= (1 << OUTPUT_2_BIT);
+	} else {
+		OUTPUT_GPIO_PORT &= ~(1 << OUTPUT_2_BIT);
+	}
+  if (mode & DIGITOUT_P3_ENABLE) {
+		OUTPUT_GPIO_PORT |= (1 << OUTPUT_3_BIT);
+	} else {
+		OUTPUT_GPIO_PORT &= ~(1 << OUTPUT_3_BIT);
+	}
+
+  sys.report_ovr_counter = 0; // Set to report change immediately
+}
+#endif
 
 // G-code parser entry-point for setting coolant state. Forces a planner buffer sync and bails 
 // if an abort or check-mode is active.
@@ -127,3 +157,14 @@ void coolant_sync(uint8_t mode)
   protocol_buffer_synchronize(); // Ensure coolant turns on when specified in program.
   coolant_set_state(mode);
 }
+
+
+// Output control mimicking coolant_sync(uint8_t mode)
+#ifdef STM32F7XX_ARCH
+void output_sync(uint8_t mode)
+{
+  if (sys.state == STATE_CHECK_MODE) { return; }
+  protocol_buffer_synchronize(); // Ensure output turns on when specified in program.
+  output_set_state(mode);
+}
+#endif

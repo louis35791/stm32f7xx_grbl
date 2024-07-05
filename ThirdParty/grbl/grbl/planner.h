@@ -49,6 +49,14 @@
 #define PL_COND_SPINDLE_MASK   (PL_COND_FLAG_SPINDLE_CW|PL_COND_FLAG_SPINDLE_CCW)
 #define PL_COND_ACCESSORY_MASK (PL_COND_FLAG_SPINDLE_CW|PL_COND_FLAG_SPINDLE_CCW|PL_COND_FLAG_COOLANT_FLOOD|PL_COND_FLAG_COOLANT_MIST)
 
+#ifdef STM32F7XX_ARCH
+  #define PL_COND_FLAG_DIGITOUT_P0     bit(0)
+  #define PL_COND_FLAG_DIGITOUT_P1     bit(1)
+  #define PL_COND_FLAG_DIGITOUT_P2     bit(2)
+  #define PL_COND_FLAG_DIGITOUT_P3     bit(3)
+  #define PL_COND_DIGITOUT_MASK (PL_COND_FLAG_DIGITOUT_P0|PL_COND_FLAG_DIGITOUT_P1|PL_COND_FLAG_DIGITOUT_P2|PL_COND_FLAG_DIGITOUT_P3)
+#endif
+
 
 // This struct stores a linear movement of a g-code block motion with its critical "nominal" values
 // are as specified in the source g-code.
@@ -83,6 +91,10 @@ typedef struct {
     // Stored spindle speed data used by spindle overrides and resuming methods.
     float spindle_speed;    // Block spindle speed. Copied from pl_line_data.
   #endif
+
+  #ifdef STM32F7XX_ARCH
+    uint8_t io_condition;     // Block bitflag variable defining block run I/O conditions. Copied from pl_line_data.
+  #endif
 } plan_block_t;
 
 
@@ -93,6 +105,9 @@ typedef struct {
   uint8_t condition;        // Bitflag variable to indicate planner conditions. See defines above.
   #ifdef USE_LINE_NUMBERS
     int32_t line_number;    // Desired line number to report when executing.
+  #endif
+  #ifdef STM32F7XX_ARCH
+    uint8_t io_condition;   // Bitflag variable to indicate planner I/O conditions. See defines above.
   #endif
 } plan_line_data_t;
 
